@@ -1,0 +1,30 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+
+# Project specific
+backend/uploads/*
+backend/faiss_index/
+*.db
+*.sqlite
+
+# OS
+.DS_Store
+Thumbs.db

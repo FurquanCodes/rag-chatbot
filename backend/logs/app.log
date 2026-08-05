@@ -1,0 +1,2 @@
+2026-08-05 11:16:22 - app.main - INFO - main.py:32 - lifespan() - Environment: development
+2026-08-05 11:16:22 - app.main - INFO - main.py:33 - lifespan() - API running on 0.0.0.0:8000

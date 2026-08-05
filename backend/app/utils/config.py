@@ -3,7 +3,7 @@ Configuration management using Pydantic Settings
 Centralized configuration for the entire backend application
 """
 
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings
 from pydantic import Field
 from pathlib import Path
 import logging

@@ -2,13 +2,11 @@
 Configuration management using Pydantic Settings
 Centralized configuration for the entire backend application
 """
-
 from pydantic_settings import BaseSettings
 from pydantic import Field
 from pathlib import Path
 import logging
 from functools import lru_cache
-
 
 class Settings(BaseSettings):
     """
@@ -59,8 +57,8 @@ class Settings(BaseSettings):
     )
     
     class Config:
-        """Load configuration from .env file"""
-        env_file = ".env"
+        """Load configuration from the backend .env file"""
+        env_file = Path(__file__).resolve().parents[2] / ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
 

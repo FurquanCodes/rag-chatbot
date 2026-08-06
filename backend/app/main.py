@@ -93,9 +93,11 @@ async def health_check():
 
 # Import route modules
 from app.api.routes.upload import router as upload_router
+from app.api.routes.chat import router as chat_router
 
 # Include routers
 app.include_router(upload_router)
+app.include_router(chat_router)
 
 
 # ============ ERROR HANDLERS ============

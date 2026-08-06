@@ -28,3 +28,39 @@ ModuleNotFoundError("No module named 'faiss.swigfaiss_avx2'")
 2026-08-06 12:44:17 - faiss.loader - INFO - loader.py:189 - <module>() - Successfully loaded faiss.
 2026-08-06 12:44:17 - app.main - INFO - main.py:32 - lifespan() - Environment: development
 2026-08-06 12:44:17 - app.main - INFO - main.py:33 - lifespan() - API running on 0.0.0.0:8000
+2026-08-06 12:50:30 - faiss.loader - INFO - loader.py:145 - <module>() - Loading faiss with AVX512 support.
+2026-08-06 12:50:30 - faiss.loader - INFO - loader.py:151 - <module>() - Could not load library with AVX512 support due to:
+ModuleNotFoundError("No module named 'faiss.swigfaiss_avx512'")
+2026-08-06 12:50:30 - faiss.loader - INFO - loader.py:160 - <module>() - Loading faiss with AVX2 support.
+2026-08-06 12:50:30 - faiss.loader - INFO - loader.py:166 - <module>() - Could not load library with AVX2 support due to:
+ModuleNotFoundError("No module named 'faiss.swigfaiss_avx2'")
+2026-08-06 12:50:30 - faiss.loader - INFO - loader.py:186 - <module>() - Loading faiss.
+2026-08-06 12:50:30 - faiss.loader - INFO - loader.py:189 - <module>() - Successfully loaded faiss.
+2026-08-06 12:53:41 - faiss.loader - INFO - loader.py:145 - <module>() - Loading faiss with AVX512 support.
+2026-08-06 12:53:41 - faiss.loader - INFO - loader.py:151 - <module>() - Could not load library with AVX512 support due to:
+ModuleNotFoundError("No module named 'faiss.swigfaiss_avx512'")
+2026-08-06 12:53:41 - faiss.loader - INFO - loader.py:160 - <module>() - Loading faiss with AVX2 support.
+2026-08-06 12:53:41 - faiss.loader - INFO - loader.py:166 - <module>() - Could not load library with AVX2 support due to:
+ModuleNotFoundError("No module named 'faiss.swigfaiss_avx2'")
+2026-08-06 12:53:41 - faiss.loader - INFO - loader.py:186 - <module>() - Loading faiss.
+2026-08-06 12:53:41 - faiss.loader - INFO - loader.py:189 - <module>() - Successfully loaded faiss.
+2026-08-06 12:59:59 - faiss.loader - INFO - loader.py:145 - <module>() - Loading faiss with AVX512 support.
+2026-08-06 12:59:59 - faiss.loader - INFO - loader.py:151 - <module>() - Could not load library with AVX512 support due to:
+ModuleNotFoundError("No module named 'faiss.swigfaiss_avx512'")
+2026-08-06 12:59:59 - faiss.loader - INFO - loader.py:160 - <module>() - Loading faiss with AVX2 support.
+2026-08-06 12:59:59 - faiss.loader - INFO - loader.py:166 - <module>() - Could not load library with AVX2 support due to:
+ModuleNotFoundError("No module named 'faiss.swigfaiss_avx2'")
+2026-08-06 12:59:59 - faiss.loader - INFO - loader.py:186 - <module>() - Loading faiss.
+2026-08-06 12:59:59 - faiss.loader - INFO - loader.py:189 - <module>() - Successfully loaded faiss.
+2026-08-06 12:59:59 - app.main - INFO - main.py:32 - lifespan() - Environment: development
+2026-08-06 12:59:59 - app.main - INFO - main.py:33 - lifespan() - API running on 0.0.0.0:8000
+2026-08-06 13:03:34 - faiss.loader - INFO - loader.py:145 - <module>() - Loading faiss with AVX512 support.
+2026-08-06 13:03:34 - faiss.loader - INFO - loader.py:151 - <module>() - Could not load library with AVX512 support due to:
+ModuleNotFoundError("No module named 'faiss.swigfaiss_avx512'")
+2026-08-06 13:03:34 - faiss.loader - INFO - loader.py:160 - <module>() - Loading faiss with AVX2 support.
+2026-08-06 13:03:34 - faiss.loader - INFO - loader.py:166 - <module>() - Could not load library with AVX2 support due to:
+ModuleNotFoundError("No module named 'faiss.swigfaiss_avx2'")
+2026-08-06 13:03:34 - faiss.loader - INFO - loader.py:186 - <module>() - Loading faiss.
+2026-08-06 13:03:34 - faiss.loader - INFO - loader.py:189 - <module>() - Successfully loaded faiss.
+2026-08-06 13:03:34 - app.main - INFO - main.py:32 - lifespan() - Environment: development
+2026-08-06 13:03:34 - app.main - INFO - main.py:33 - lifespan() - API running on 0.0.0.0:8000

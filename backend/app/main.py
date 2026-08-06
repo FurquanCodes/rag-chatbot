@@ -89,43 +89,15 @@ async def health_check():
     }
 
 
-# ============ PLACEHOLDER ROUTES ============
-# These will be replaced with actual route imports later
+# ============ REGISTER ROUTES ============
 
-@app.post(f"{API_V1_PREFIX}/upload", tags=["Documents"])
-async def upload_documents():
-    """
-    Upload documents endpoint (placeholder)
-    Will be implemented in Step 2
-    """
-    return {
-        "status": "coming_soon",
-        "message": "Document upload will be implemented in Step 2"
-    }
+# Import route modules
+from app.api.routes.upload import router as upload_router
+from app.api.routes.chat import router as chat_router
 
-
-@app.post(f"{API_V1_PREFIX}/chat", tags=["Chat"])
-async def chat():
-    """
-    Chat endpoint (placeholder)
-    Will be implemented in Step 2
-    """
-    return {
-        "status": "coming_soon",
-        "message": "Chat functionality will be implemented in Step 2"
-    }
-
-
-@app.get(f"{API_V1_PREFIX}/documents", tags=["Documents"])
-async def list_documents():
-    """
-    List documents endpoint (placeholder)
-    Will be implemented in Step 2
-    """
-    return {
-        "status": "coming_soon",
-        "message": "Document listing will be implemented in Step 2"
-    }
+# Include routers
+app.include_router(upload_router)
+app.include_router(chat_router)
 
 
 # ============ ERROR HANDLERS ============

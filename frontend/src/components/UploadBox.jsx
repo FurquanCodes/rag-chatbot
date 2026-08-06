@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { uploadDocument } from "../api";
 
-function UploadBox({ onUploaded }) {
+function UploadBox({ onUploaded, fileName }) {
   const [status, setStatus] = useState("");
 
   async function handleFileChange(e) {
@@ -10,7 +10,7 @@ function UploadBox({ onUploaded }) {
     setStatus("Uploading...");
     try {
       await uploadDocument(file);
-      setStatus(`Uploaded: ${file.name}`);
+      setStatus("");
       onUploaded(file.name);
     } catch (err) {
       setStatus("Upload failed");
@@ -18,12 +18,13 @@ function UploadBox({ onUploaded }) {
   }
 
   return (
-    <div className="p-4 border-b border-gray-200">
+    <div className="p-4 border-b border-gray-200 flex items-center gap-4">
       <label className="cursor-pointer inline-block bg-blue-500 text-white px-4 py-2 rounded-lg">
         Upload Document
         <input type="file" accept=".pdf,.docx,.txt" onChange={handleFileChange} className="hidden" />
       </label>
-      {status && <p className="text-sm text-gray-500 mt-2">{status}</p>}
+      {status && <p className="text-sm text-gray-500">{status}</p>}
+      {fileName && !status && <p className="text-sm text-gray-600">Active document: {fileName}</p>}
     </div>
   );
 }

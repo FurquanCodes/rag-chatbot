@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from "react";
 import MessageBubble from "./MessageBubble";
+import UploadBox from "./UploadBox";
 import { askQuestion } from "../api";
 
-function ChatWindow({ messages, setMessages }) {
+function ChatWindow({ messages, setMessages, fileName, onUploaded }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
@@ -34,7 +35,7 @@ function ChatWindow({ messages, setMessages }) {
     <div className="flex flex-col flex-1">
       <div className="flex-1 overflow-y-auto p-4">
         {messages.length === 0 && (
-          <p className="text-center text-gray-400 mt-10">Upload a document above, then ask a question to get started.</p>
+          <p className="text-center text-gray-400 mt-10">Upload a document below, then ask a question to get started.</p>
         )}
         {messages.map((m, i) => (
           <MessageBubble key={i} role={m.role} text={m.text} source={m.source} />
@@ -42,7 +43,9 @@ function ChatWindow({ messages, setMessages }) {
         {loading && <p className="text-sm text-gray-400">Thinking...</p>}
         <div ref={bottomRef} />
       </div>
-      <div className="p-4 border-t border-gray-200 flex gap-2">
+      {fileName && <p className="text-xs text-gray-500 px-4">Active document: {fileName}</p>}
+      <div className="p-4 border-t border-gray-200 flex gap-2 items-center">
+        <UploadBox onUploaded={onUploaded} />
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}

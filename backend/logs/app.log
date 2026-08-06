@@ -6,3 +6,7 @@
 2026-08-06 11:20:14 - app.main - INFO - main.py:33 - lifespan() - API running on 0.0.0.0:8000
 2026-08-06 11:21:01 - app.main - INFO - main.py:32 - lifespan() - Environment: development
 2026-08-06 11:21:01 - app.main - INFO - main.py:33 - lifespan() - API running on 0.0.0.0:8000
+2026-08-06 11:26:24 - app.main - INFO - main.py:32 - lifespan() - Environment: development
+2026-08-06 11:26:24 - app.main - INFO - main.py:33 - lifespan() - API running on 0.0.0.0:8000
+2026-08-06 11:48:06 - app.main - INFO - main.py:32 - lifespan() - Environment: development
+2026-08-06 11:48:06 - app.main - INFO - main.py:33 - lifespan() - API running on 0.0.0.0:8000

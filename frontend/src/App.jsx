@@ -7,6 +7,7 @@ function App() {
     { id: 1, title: "New Chat", messages: [], fileName: "" },
   ]);
   const [activeChatId, setActiveChatId] = useState(1);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const activeChat = chats.find((c) => c.id === activeChatId);
 
@@ -37,11 +38,18 @@ function App() {
   }
 
   return (
-    <div className="flex h-screen">
-      <Sidebar chats={chats} activeChatId={activeChatId} onSelectChat={setActiveChatId} onNewChat={handleNewChat} />
+    <div className="flex h-screen bg-gray-900">
+      <Sidebar
+        chats={chats}
+        activeChatId={activeChatId}
+        onSelectChat={setActiveChatId}
+        onNewChat={handleNewChat}
+        isOpen={sidebarOpen}
+        onToggle={() => setSidebarOpen((prev) => !prev)}
+      />
       <div className="flex flex-col flex-1">
-        <header className="p-4 bg-gray-900 text-white text-lg font-semibold">
-          Document Chatbot
+        <header className="p-4 bg-gray-900 border-b border-gray-800 text-white text-lg font-semibold">
+          Chatbot
         </header>
         <ChatWindow
           messages={activeChat.messages}

@@ -19,7 +19,7 @@ function UploadBox({ onUploaded }) {
 
   return (
     <div className="flex items-center gap-1">
-      <label className="cursor-pointer flex items-center justify-center bg-gray-200 text-gray-700 w-10 h-10 rounded-lg text-lg" title="Upload document">
+      <label className="cursor-pointer flex items-center justify-center bg-gray-800 text-gray-200 w-10 h-10 rounded-lg text-lg border border-gray-700" title="Upload document">
         📎
         <input type="file" accept=".pdf,.docx,.txt" onChange={handleFileChange} className="hidden" />
       </label>

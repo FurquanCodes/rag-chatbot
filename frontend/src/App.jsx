@@ -2,6 +2,31 @@ import { useState } from "react";
 import Sidebar from "./components/Sidebar";
 import ChatWindow from "./components/ChatWindow";
 
+const STOP_WORDS = new Set([
+  "the", "a", "an", "is", "are", "was", "were", "am", "be", "been", "being",
+  "what", "who", "when", "where", "why", "how", "which", "whom",
+  "can", "could", "would", "should", "will", "shall", "may", "might", "must",
+  "do", "does", "did", "doing",
+  "i", "you", "he", "she", "it", "we", "they", "me", "him", "her", "us", "them", "my", "your", "his", "its", "our", "their",
+  "to", "of", "in", "on", "for", "with", "from", "about", "into", "at", "by", "as",
+  "please", "tell", "explain", "give", "show", "describe", "this", "that", "these", "those",
+]);
+
+function generateTitle(text) {
+  const words = text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .split(/\s+/)
+    .filter((w) => w && !STOP_WORDS.has(w));
+
+  if (words.length === 0) return "New Chat";
+
+  return words
+    .slice(0, 4)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 function App() {
   const [chats, setChats] = useState([
     { id: 1, title: "New Chat", messages: [], fileName: "" },
@@ -33,7 +58,7 @@ function App() {
     const firstUserMessage = newMessages.find((m) => m.role === "user");
     updateActiveChat({
       messages: newMessages,
-      title: firstUserMessage ? firstUserMessage.text.slice(0, 24) : "New Chat",
+      title: firstUserMessage ? generateTitle(firstUserMessage.text) : "New Chat",
     });
   }
 

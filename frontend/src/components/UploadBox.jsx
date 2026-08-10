@@ -1,69 +1,47 @@
-import { useState, useRef } from "react";
-import { uploadDocument } from "../api";
+import { uploadDocuments } from "../api";
 
-function UploadBox({ onUploaded, collectionId = "default" }) {
-  const [uploading, setUploading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
-  const fileInputRef = useRef(null);
-
+function UploadBox({ onUploaded, isUploading, setIsUploading }) {
   async function handleFileChange(e) {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
 
-    setUploading(true);
-    setErrorMsg("");
+    if (setIsUploading) setIsUploading(true);
 
     try {
-      const res = await uploadDocument(files, collectionId);
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      if (onUploaded) {
-        onUploaded(res);
-      }
+      const res = await uploadDocuments(files);
+      const fileNames = files.map((f) => f.name).join(", ");
+      if (onUploaded) onUploaded(fileNames, res);
     } catch (err) {
-      setUploading(false);
-      setErrorMsg(err.message || "Upload failed");
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      console.error("Upload error:", err);
+      alert("Failed to upload document. Please try again.");
+    } finally {
+      if (setIsUploading) setIsUploading(false);
+      e.target.value = "";
     }
   }
 
   return (
-    <div className="relative flex items-center gap-2">
+    <div className="relative">
       <label
-        className={`cursor-pointer flex items-center justify-center w-10 h-10 rounded-lg border transition-all ${
-          uploading
-            ? "bg-blue-900/50 border-blue-600 text-blue-300 animate-pulse cursor-wait"
-            : "bg-gray-800 hover:bg-gray-750 text-gray-200 border-gray-700 hover:border-gray-600"
+        className={`w-11 h-11 rounded-xl bg-[#131B2E] border border-[#22304E] hover:border-[#2563EB] flex items-center justify-center text-lg cursor-pointer transition-all shadow-md ${
+          isUploading ? "opacity-50 cursor-not-allowed" : ""
         }`}
-        title="Upload PDF, DOCX, PPTX, or TXT"
+        title="Upload document (PDF, DOCX, PPTX, TXT)"
       >
-        {uploading ? (
-          <span className="text-sm font-bold">⏳</span>
+        {isUploading ? (
+          <span className="animate-spin text-sm">⏳</span>
         ) : (
-          <span className="text-lg">📎</span>
+          <span>📎</span>
         )}
         <input
-          ref={fileInputRef}
           type="file"
           accept=".pdf,.docx,.pptx,.txt"
           multiple
+          disabled={isUploading}
           onChange={handleFileChange}
-          disabled={uploading}
           className="hidden"
         />
       </label>
-
-      {errorMsg && (
-        <div className="absolute bottom-12 left-0 bg-red-900/90 text-red-200 border border-red-700 text-xs px-3 py-1.5 rounded shadow-lg whitespace-nowrap z-50 flex items-center gap-2">
-          <span>⚠️ {errorMsg}</span>
-          <button
-            onClick={() => setErrorMsg("")}
-            className="text-red-300 hover:text-white font-bold ml-1"
-          >
-            ×
-          </button>
-        </div>
-      )}
     </div>
   );
 }

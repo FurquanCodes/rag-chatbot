@@ -7,51 +7,33 @@ function Sidebar({
   onNewChat,
   isOpen,
   onToggle,
+  searchStrategy,
+  setSearchStrategy,
   documents,
   onDeleteDocument,
-  searchType,
-  onSearchTypeChange,
-  backendConnected,
+  isUploading,
 }) {
-  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
-
-  function handleDeleteClick(e, fileId) {
-    e.stopPropagation();
-    if (confirmDeleteId === fileId) {
-      onDeleteDocument(fileId);
-      setConfirmDeleteId(null);
-    } else {
-      setConfirmDeleteId(fileId);
-      setTimeout(() => {
-        setConfirmDeleteId(null);
-      }, 4000);
-    }
-  }
-
   return (
     <div
-      className={`bg-gray-950 text-white flex flex-col border-r border-gray-800 transition-all duration-300 ${
+      className={`bg-[#0A0D16] text-slate-200 flex flex-col border-r border-[#1A2338] transition-all duration-300 z-20 ${
         isOpen ? "w-72" : "w-16"
       }`}
     >
-      <div className="p-3 border-b border-gray-800 flex items-center justify-between">
+      <div className="p-4 flex items-center justify-between border-b border-[#1A2338]">
         {isOpen ? (
           <div className="flex items-center gap-2">
-            <span className="font-bold text-base text-blue-400">RAG Chatbot</span>
-            <span
-              className={`w-2 h-2 rounded-full ${
-                backendConnected ? "bg-emerald-500" : "bg-rose-500 animate-pulse"
-              }`}
-              title={backendConnected ? "Backend Online" : "Backend Offline"}
-            />
+            <span className="font-bold text-white text-base tracking-wide">
+              RAG Chatbot
+            </span>
+            <span className="w-2 h-2 rounded-full bg-pink-500 animate-pulse"></span>
           </div>
         ) : (
-          <span className="font-bold text-blue-400 mx-auto text-sm">RAG</span>
+          <span className="w-2.5 h-2.5 rounded-full bg-pink-500 mx-auto"></span>
         )}
         <button
           onClick={onToggle}
-          className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-gray-800 transition-colors"
           title={isOpen ? "Collapse Sidebar" : "Expand Sidebar"}
+          className="text-slate-400 hover:text-white p-1 rounded-md hover:bg-[#1A2338] transition-colors"
         >
           {isOpen ? "«" : "»"}
         </button>
@@ -60,8 +42,8 @@ function Sidebar({
       <div className="p-3">
         <button
           onClick={onNewChat}
-          className={`bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2 ${
-            isOpen ? "w-full py-2 px-3 text-sm" : "w-10 h-10 mx-auto text-lg"
+          className={`w-full bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-medium rounded-lg flex items-center justify-center gap-2 transition-all shadow-md ${
+            isOpen ? "py-2.5 px-4 text-sm" : "py-2.5 px-0 text-base"
           }`}
         >
           <span>+</span>
@@ -69,109 +51,110 @@ function Sidebar({
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-2 space-y-4">
+      <div className="flex-1 overflow-y-auto px-3 space-y-5 custom-scrollbar">
         <div>
           {isOpen && (
-            <div className="px-2 pb-1 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+            <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">
               Conversations
-            </div>
+            </h3>
           )}
           <div className="space-y-1">
-            {chats.map((chat) => {
-              const isActive = chat.id === activeChatId;
-              return (
-                <button
-                  key={chat.id}
-                  onClick={() => onSelectChat(chat.id)}
-                  title={chat.title}
-                  className={`w-full text-left rounded-lg transition-colors flex items-center ${
-                    isOpen ? "px-3 py-2 text-sm gap-2" : "w-10 h-10 mx-auto justify-center"
-                  } ${
-                    isActive
-                      ? "bg-gray-800 text-white font-medium border border-gray-700"
-                      : "text-gray-400 hover:bg-gray-900 hover:text-gray-200"
-                  }`}
-                >
-                  <span className="text-sm shrink-0">💬</span>
-                  {isOpen && <span className="truncate">{chat.title}</span>}
-                </button>
-              );
-            })}
+            {chats.map((chat) => (
+              <button
+                key={chat.id}
+                onClick={() => onSelectChat(chat.id)}
+                title={chat.title}
+                className={`w-full text-left rounded-lg transition-colors flex items-center gap-2.5 ${
+                  isOpen ? "px-3 py-2 text-sm" : "p-2 justify-center"
+                } ${
+                  chat.id === activeChatId
+                    ? "bg-[#1E293B] text-white font-medium border border-[#334155]"
+                    : "text-slate-400 hover:bg-[#172033] hover:text-slate-200"
+                }`}
+              >
+                <span>💬</span>
+                {isOpen && <span className="truncate">{chat.title}</span>}
+              </button>
+            ))}
           </div>
         </div>
 
         {isOpen && (
-          <div className="pt-2 border-t border-gray-850">
-            <div className="px-2 pb-1.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+          <div>
+            <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">
               Search Strategy
-            </div>
-            <div className="px-1">
+            </h3>
+            <div className="relative">
               <select
-                value={searchType}
-                onChange={(e) => onSearchTypeChange(e.target.value)}
-                className="w-full bg-gray-900 text-gray-200 border border-gray-750 rounded-md px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-500"
+                value={searchStrategy}
+                onChange={(e) => setSearchStrategy(e.target.value)}
+                className="w-full bg-[#172033] text-slate-200 border border-[#26334D] rounded-lg px-3 py-2 text-xs font-medium focus:outline-none focus:border-[#2563EB] cursor-pointer appearance-none"
               >
                 <option value="hybrid">⚡ Hybrid (Docs + Wikipedia)</option>
                 <option value="documents_only">📄 Documents Only</option>
                 <option value="wikipedia_only">🌐 Wikipedia Only</option>
               </select>
+              <span className="absolute right-3 top-2.5 text-xs text-slate-400 pointer-events-none">
+                ▼
+              </span>
             </div>
           </div>
         )}
 
         {isOpen && (
-          <div className="pt-2 border-t border-gray-850">
-            <div className="px-2 pb-1.5 flex items-center justify-between text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
-              <span>Indexed Documents</span>
-              <span className="text-gray-500 font-mono">({documents ? documents.length : 0})</span>
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                Indexed Documents
+              </h3>
+              <span className="text-xs text-slate-500 font-mono">
+                ({documents ? documents.length : 0})
+              </span>
             </div>
 
-            {!documents || documents.length === 0 ? (
-              <div className="px-2 py-3 text-xs text-gray-500 italic bg-gray-900/40 rounded border border-gray-850 text-center">
-                No documents uploaded yet
-              </div>
-            ) : (
-              <div className="space-y-1 max-h-48 overflow-y-auto px-1">
+            {documents && documents.length > 0 ? (
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                 {documents.map((doc) => (
                   <div
                     key={doc.file_id}
-                    className="p-2 rounded bg-gray-900 border border-gray-800 text-xs flex items-center justify-between gap-2 group hover:border-gray-700 transition-colors"
+                    className="bg-[#172033] border border-[#26334D] rounded-lg p-2.5 flex items-center justify-between gap-2 group hover:border-[#3B82F6] transition-colors"
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="font-medium text-gray-200 truncate" title={doc.filename}>
-                        📄 {doc.filename}
-                      </div>
-                      <div className="text-[10px] text-gray-400 flex items-center gap-1.5 mt-0.5">
-                        <span>{doc.chunks} chunks</span>
-                        {doc.pages > 0 && <span>• {doc.pages} pages</span>}
-                      </div>
+                      <p className="text-xs font-medium text-slate-200 truncate">
+                        {doc.filename}
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        {doc.chunks || 0} chunks • {(doc.file_size_mb || 0).toFixed(2)} MB
+                      </p>
                     </div>
                     <button
-                      onClick={(e) => handleDeleteClick(e, doc.file_id)}
-                      className={`text-xs px-2 py-1 rounded transition-colors shrink-0 ${
-                        confirmDeleteId === doc.file_id
-                          ? "bg-rose-900 text-rose-200 font-bold border border-rose-700"
-                          : "text-gray-500 hover:text-rose-400 hover:bg-gray-800"
-                      }`}
-                      title={confirmDeleteId === doc.file_id ? "Click again to delete" : "Delete document"}
+                      onClick={() => onDeleteDocument(doc.file_id)}
+                      title="Delete document"
+                      className="text-slate-500 hover:text-red-400 p-1 rounded opacity-60 group-hover:opacity-100 transition-all"
                     >
-                      {confirmDeleteId === doc.file_id ? "Confirm?" : "🗑️"}
+                      🗑️
                     </button>
                   </div>
                 ))}
+              </div>
+            ) : (
+              <div className="border border-dashed border-[#26334D] rounded-lg p-4 text-center">
+                <p className="text-xs text-slate-500 italic">
+                  {isUploading ? "Uploading file..." : "No documents uploaded yet"}
+                </p>
               </div>
             )}
           </div>
         )}
       </div>
 
-      <div className="p-3 border-t border-gray-800 text-xs text-gray-400 text-center">
+      <div className="p-3 border-t border-[#1A2338] text-center">
         {isOpen ? (
-          <div>
-            <span>FastAPI + FAISS + Gemini</span>
-          </div>
+          <p className="text-[11px] text-slate-500 font-mono">
+            FastAPI + FAISS + Gemini
+          </p>
         ) : (
-          <span>v1.0</span>
+          <span className="text-xs text-slate-600 font-mono">⚡</span>
         )}
       </div>
     </div>

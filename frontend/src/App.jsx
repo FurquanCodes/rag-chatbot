@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import Sidebar from "./components/Sidebar";
 import ChatWindow from "./components/ChatWindow";
-import { listDocuments, deleteDocument, checkBackendHealth } from "./api";
+import { listDocuments, deleteDocument, checkHealth } from "./api";
 
 const STOP_WORDS = new Set([
   "the", "a", "an", "is", "are", "was", "were", "am", "be", "been", "being",
@@ -34,41 +34,44 @@ function App() {
   ]);
   const [activeChatId, setActiveChatId] = useState(1);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [searchStrategy, setSearchStrategy] = useState("hybrid");
   const [documents, setDocuments] = useState([]);
-  const [searchType, setSearchType] = useState("hybrid");
-  const [backendConnected, setBackendConnected] = useState(false);
-  const collectionId = "default";
+  const [isConnected, setIsConnected] = useState(true);
+  const [isUploading, setIsUploading] = useState(false);
 
   const activeChat = chats.find((c) => c.id === activeChatId) || chats[0];
 
-  const fetchDocs = useCallback(async () => {
-    try {
-      const res = await listDocuments(collectionId);
-      if (res && res.data && res.data.documents) {
-        setDocuments(res.data.documents);
-      }
-    } catch {
-      setDocuments([]);
-    }
-  }, [collectionId]);
+  useEffect(() => {
+    fetchDocuments();
+    verifyHealth();
 
-  const verifyHealth = useCallback(async () => {
-    try {
-      await checkBackendHealth();
-      setBackendConnected(true);
-    } catch {
-      setBackendConnected(false);
-    }
+    const interval = setInterval(() => {
+      fetchDocuments();
+      verifyHealth();
+    }, 10000);
+
+    return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    verifyHealth();
-    fetchDocs();
-    const interval = setInterval(() => {
-      verifyHealth();
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [verifyHealth, fetchDocs]);
+  async function fetchDocuments() {
+    try {
+      const res = await listDocuments("default");
+      if (res && res.data && Array.isArray(res.data.documents)) {
+        setDocuments(res.data.documents);
+      }
+    } catch (err) {
+      console.error("Error fetching documents:", err);
+    }
+  }
+
+  async function verifyHealth() {
+    try {
+      const res = await checkHealth();
+      setIsConnected(res && res.status === "healthy");
+    } catch (err) {
+      setIsConnected(false);
+    }
+  }
 
   function updateActiveChat(updates) {
     setChats((prev) =>
@@ -85,30 +88,26 @@ function App() {
     setActiveChatId(newId);
   }
 
-  async function handleUploaded(uploadResult) {
-    await fetchDocs();
-    const files = uploadResult?.data?.uploaded_files || [];
-    const count = files.length;
-    const name = files.map((f) => f.filename).join(", ") || "Uploaded Document";
-
+  function handleUploaded(name) {
     updateActiveChat({
       fileName: name,
       messages: [
         ...activeChat.messages,
         {
           role: "assistant",
-          text: `Successfully processed ${count} file(s): "${name}". Ask me anything about your documents!`,
+          text: `Document "${name}" is ready. Ask me anything about it.`,
         },
       ],
     });
+    fetchDocuments();
   }
 
   async function handleDeleteDocument(fileId) {
     try {
-      await deleteDocument(fileId, collectionId);
-      await fetchDocs();
+      await deleteDocument(fileId, "default");
+      fetchDocuments();
     } catch (err) {
-      alert("Failed to delete document: " + err.message);
+      console.error("Error deleting document:", err);
     }
   }
 
@@ -116,6 +115,7 @@ function App() {
     const newMessages =
       typeof updater === "function" ? updater(activeChat.messages) : updater;
     const firstUserMessage = newMessages.find((m) => m.role === "user");
+
     updateActiveChat({
       messages: newMessages,
       title: firstUserMessage
@@ -125,7 +125,7 @@ function App() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-900 overflow-hidden font-sans">
+    <div className="flex h-screen bg-[#0D111D] font-sans overflow-hidden">
       <Sidebar
         chats={chats}
         activeChatId={activeChatId}
@@ -133,57 +133,23 @@ function App() {
         onNewChat={handleNewChat}
         isOpen={sidebarOpen}
         onToggle={() => setSidebarOpen((prev) => !prev)}
+        searchStrategy={searchStrategy}
+        setSearchStrategy={setSearchStrategy}
         documents={documents}
         onDeleteDocument={handleDeleteDocument}
-        searchType={searchType}
-        onSearchTypeChange={setSearchType}
-        backendConnected={backendConnected}
+        isUploading={isUploading}
       />
-      <div className="flex flex-col flex-1 h-full overflow-hidden">
-        <header className="px-6 py-3.5 bg-gray-950 border-b border-gray-800 text-white flex items-center justify-between shadow-sm">
-          <div className="flex items-center gap-3">
-            <h1 className="text-base font-semibold tracking-wide">
-              {activeChat ? activeChat.title : "Chatbot"}
-            </h1>
-            <span className="text-xs bg-gray-800 text-gray-300 px-2 py-0.5 rounded-full border border-gray-700 font-mono">
-              {searchType === "hybrid"
-                ? "Hybrid RAG"
-                : searchType === "documents_only"
-                ? "Docs Only"
-                : "Wikipedia Only"}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3 text-xs">
-            <span className="text-gray-400">
-              {documents.length} document(s) in index
-            </span>
-            <div
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border ${
-                backendConnected
-                  ? "bg-emerald-950/80 text-emerald-300 border-emerald-800"
-                  : "bg-rose-950/80 text-rose-300 border-rose-800"
-              }`}
-            >
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  backendConnected ? "bg-emerald-400" : "bg-rose-400 animate-ping"
-                }`}
-              />
-              <span>{backendConnected ? "Backend Ready" : "Disconnected"}</span>
-            </div>
-          </div>
-        </header>
-
+      <div className="flex flex-col flex-1 min-w-0">
         <ChatWindow
-          messages={activeChat ? activeChat.messages : []}
+          messages={activeChat.messages}
           setMessages={setMessages}
-          fileName={activeChat ? activeChat.fileName : ""}
+          fileName={activeChat.fileName}
           onUploaded={handleUploaded}
-          searchType={searchType}
-          documents={documents}
-          collectionId={collectionId}
-          backendConnected={backendConnected}
+          searchStrategy={searchStrategy}
+          documentsCount={documents ? documents.length : 0}
+          isConnected={isConnected}
+          isUploading={isUploading}
+          setIsUploading={setIsUploading}
         />
       </div>
     </div>

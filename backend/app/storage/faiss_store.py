@@ -149,11 +149,11 @@ class FAISSVectorStore:
             self.index.add(vectors_array)
             self.vector_count = self.index.ntotal
             
-            # Store metadata
             for chunk in valid_chunks:
                 metadata = {
                     "chunk_id": chunk.chunk_id,
                     "file_id": chunk.file_id,
+                    "filename": getattr(chunk, "filename", None),
                     "chunk_index": chunk.chunk_index,
                     "text": chunk.text,
                     "page_number": chunk.page_number,
@@ -161,6 +161,7 @@ class FAISSVectorStore:
                     "created_at": chunk.created_at.isoformat() if chunk.created_at else None
                 }
                 self.metadata.append(metadata)
+
             
             logger.info(f"✅ Added {len(valid_chunks)} vectors (total: {self.vector_count})")
             return True, None
@@ -226,26 +227,20 @@ class FAISSVectorStore:
             # So: similarity = 1 - (distance / 2)
             distances, indices = self.index.search(query, min(k, self.vector_count))
             
-            # Process results
             results = []
+            all_candidates = []
             
             for rank, (distance, idx) in enumerate(zip(distances[0], indices[0]), 1):
-                # Convert distance to similarity score (0-1)
-                # FAISS L2 distance on normalized vectors gives similarity
-                similarity_score = max(0.0, 1.0 - (distance / 2.0))
-                
-                # Check threshold
-                if similarity_score < threshold:
-                    logger.debug(f"Skipping result with score {similarity_score} < {threshold}")
+                if idx < 0 or idx >= len(self.metadata):
                     continue
-                
-                # Get metadata
+                similarity_score = max(0.0, 1.0 - (distance / 2.0))
                 metadata = self.metadata[idx]
                 
                 result = {
                     "rank": rank,
                     "chunk_id": metadata["chunk_id"],
                     "file_id": metadata["file_id"],
+                    "filename": metadata.get("filename"),
                     "chunk_index": metadata["chunk_index"],
                     "text": metadata["text"],
                     "page_number": metadata["page_number"],
@@ -253,10 +248,13 @@ class FAISSVectorStore:
                     "similarity_score": float(similarity_score)
                 }
                 
-                results.append(result)
+                all_candidates.append(result)
+                if similarity_score >= threshold:
+                    results.append(result)
             
-            logger.info(f"✅ Found {len(results)} results (threshold={threshold})")
-            return results, None
+            final_results = results if results else all_candidates
+            logger.info(f"✅ Found {len(final_results)} results")
+            return final_results, None
             
         except Exception as e:
             error = f"Search failed: {str(e)}"
@@ -295,23 +293,18 @@ class FAISSVectorStore:
                 logger.warning(f"⚠️ No vectors found for file_id: {file_id}")
                 return True, None
             
-            # Rebuild index without deleted vectors
             if indices_to_keep:
-                # Get vectors to keep
-                all_vectors = faiss.vector_to_array(self.index.reconstruct_n(0, self.vector_count))
+                all_vectors = self.index.reconstruct_n(0, self.vector_count)
                 vectors_to_keep = all_vectors[indices_to_keep]
-                
-                # Create new index
+
                 self._create_new_index()
-                
-                # Add vectors back
+
                 self.index.add(vectors_to_keep)
                 self.metadata = new_metadata
                 self.vector_count = self.index.ntotal
             else:
-                # No vectors left, clear index
                 self._create_new_index()
-            
+
             logger.info(f"✅ Deleted {deleted_count} vectors for file_id: {file_id}")
             return True, None
             

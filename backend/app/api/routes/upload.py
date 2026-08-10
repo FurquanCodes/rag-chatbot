@@ -265,29 +265,28 @@ async def list_documents(collection_id: str = "default"):
         faiss_store = get_faiss_store()
         stats = faiss_store.get_stats()
         
-        # Get unique files from metadata
         unique_files = {}
-        
         for meta in faiss_store.metadata:
             if meta["file_id"] not in unique_files:
                 unique_files[meta["file_id"]] = {
                     "file_id": meta["file_id"],
+                    "filename": meta.get("filename") or meta["file_id"],
                     "chunks": 0,
                     "page_numbers": set()
                 }
-            
             unique_files[meta["file_id"]]["chunks"] += 1
-            if meta["page_number"]:
+            if meta.get("page_number"):
                 unique_files[meta["file_id"]]["page_numbers"].add(meta["page_number"])
         
-        # Format response
         documents = []
         for file_id, info in unique_files.items():
             documents.append({
                 "file_id": file_id,
+                "filename": info["filename"],
                 "chunks": info["chunks"],
                 "pages": len(info["page_numbers"]) if info["page_numbers"] else 0
             })
+
         
         return {
             "status": "success",

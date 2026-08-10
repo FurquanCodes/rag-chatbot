@@ -28,13 +28,12 @@ async def lifespan(app: FastAPI):
     # STARTUP
     try:
         print_startup_info()
-        logger.info(f"🚀 Starting RAG Chatbot Backend")
+        logger.info("Starting RAG Chatbot Backend")
         logger.info(f"Environment: {settings.api_env}")
         logger.info(f"API running on {settings.api_host}:{settings.api_port}")
         yield
-    # SHUTDOWN
     finally:
-        logger.info("🛑 Shutting down RAG Chatbot Backend")
+        logger.info("Shutting down RAG Chatbot Backend")
 
 
 # ============ CREATE FASTAPI APP ============
@@ -50,11 +49,12 @@ app = FastAPI(
 # Enable CORS for frontend communication
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.allowed_origins,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 
 # ============ ROOT ENDPOINT ============

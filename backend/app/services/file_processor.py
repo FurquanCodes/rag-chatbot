@@ -467,12 +467,11 @@ class FileProcessor:
             full_text, page_count, page_details = self.extractor.extract_text(file_path, file_type)
             total_chars = len(full_text)
             
-            # Step 4: Chunk text
             chunks = self.chunker.chunk_text(full_text)
-            
-            # Set file_id for all chunks
             for chunk in chunks:
                 chunk.file_id = file_id
+                chunk.filename = filename
+
             
             # Try to detect page numbers
             if page_details and file_type in ["pdf", "pptx"]:

@@ -18,7 +18,13 @@ def setup_logging():
     # Create logs directory if it doesn't exist
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     
-    # Logging configuration dictionary
+    import sys
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
     logging_config = {
         "version": 1,
         "disable_existing_loggers": False,
@@ -44,7 +50,8 @@ def setup_logging():
                 "level": settings.log_level,
                 "formatter": "detailed",
                 "filename": str(LOG_DIR / "app.log"),
-                "mode": "a"
+                "mode": "a",
+                "encoding": "utf-8"
             }
         },
         "root": {

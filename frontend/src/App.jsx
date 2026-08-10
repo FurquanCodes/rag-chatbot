@@ -29,17 +29,43 @@ function generateTitle(text) {
 }
 
 function App() {
-  const [chats, setChats] = useState([
-    { id: 1, title: "New Chat", messages: [], fileName: "" },
-  ]);
-  const [activeChatId, setActiveChatId] = useState(1);
+  const [chats, setChats] = useState(() => {
+    const saved = localStorage.getItem("rag_chatbot_chats");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {}
+    }
+    return [{ id: Date.now(), title: "New Chat", messages: [], fileName: "" }];
+  });
+
+  const [activeChatId, setActiveChatId] = useState(() => {
+    const savedId = localStorage.getItem("rag_chatbot_active_chat_id");
+    if (savedId) {
+      const num = Number(savedId);
+      if (!isNaN(num)) return num;
+    }
+    return chats[0]?.id || Date.now();
+  });
+
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [searchStrategy, setSearchStrategy] = useState("hybrid");
   const [documents, setDocuments] = useState([]);
   const [isConnected, setIsConnected] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
 
-  const activeChat = chats.find((c) => c.id === activeChatId) || chats[0];
+  const activeChat = chats.find((c) => c.id === activeChatId) || chats[0] || { id: Date.now(), title: "New Chat", messages: [], fileName: "" };
+
+  useEffect(() => {
+    localStorage.setItem("rag_chatbot_chats", JSON.stringify(chats));
+  }, [chats]);
+
+  useEffect(() => {
+    if (activeChatId) {
+      localStorage.setItem("rag_chatbot_active_chat_id", String(activeChatId));
+    }
+  }, [activeChatId]);
 
   useEffect(() => {
     fetchDocuments();
@@ -81,11 +107,25 @@ function App() {
 
   function handleNewChat() {
     const newId = Date.now();
-    setChats((prev) => [
-      ...prev,
-      { id: newId, title: "New Chat", messages: [], fileName: "" },
-    ]);
+    const newChat = { id: newId, title: "New Chat", messages: [], fileName: "" };
+    setChats((prev) => [newChat, ...prev]);
     setActiveChatId(newId);
+  }
+
+  function handleDeleteChat(e, chatIdToDelete) {
+    e.stopPropagation();
+    setChats((prev) => {
+      const remaining = prev.filter((c) => c.id !== chatIdToDelete);
+      if (remaining.length === 0) {
+        const freshId = Date.now();
+        setActiveChatId(freshId);
+        return [{ id: freshId, title: "New Chat", messages: [], fileName: "" }];
+      }
+      if (chatIdToDelete === activeChatId) {
+        setActiveChatId(remaining[0].id);
+      }
+      return remaining;
+    });
   }
 
   function handleUploaded(name) {
@@ -131,6 +171,7 @@ function App() {
         activeChatId={activeChatId}
         onSelectChat={setActiveChatId}
         onNewChat={handleNewChat}
+        onDeleteChat={handleDeleteChat}
         isOpen={sidebarOpen}
         onToggle={() => setSidebarOpen((prev) => !prev)}
         searchStrategy={searchStrategy}

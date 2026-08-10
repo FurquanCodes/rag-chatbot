@@ -5,6 +5,7 @@ function Sidebar({
   activeChatId,
   onSelectChat,
   onNewChat,
+  onDeleteChat,
   isOpen,
   onToggle,
   searchStrategy,
@@ -60,11 +61,11 @@ function Sidebar({
           )}
           <div className="space-y-1">
             {chats.map((chat) => (
-              <button
+              <div
                 key={chat.id}
                 onClick={() => onSelectChat(chat.id)}
                 title={chat.title}
-                className={`w-full text-left rounded-lg transition-colors flex items-center gap-2.5 ${
+                className={`w-full group rounded-lg transition-colors flex items-center justify-between cursor-pointer ${
                   isOpen ? "px-3 py-2 text-sm" : "p-2 justify-center"
                 } ${
                   chat.id === activeChatId
@@ -72,9 +73,20 @@ function Sidebar({
                     : "text-slate-400 hover:bg-[#172033] hover:text-slate-200"
                 }`}
               >
-                <span>💬</span>
-                {isOpen && <span className="truncate">{chat.title}</span>}
-              </button>
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <span>💬</span>
+                  {isOpen && <span className="truncate">{chat.title}</span>}
+                </div>
+                {isOpen && onDeleteChat && (
+                  <button
+                    onClick={(e) => onDeleteChat(e, chat.id)}
+                    title="Delete Chat"
+                    className="opacity-0 group-hover:opacity-100 hover:text-red-400 text-slate-500 p-0.5 rounded transition-all"
+                  >
+                    🗑️
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         </div>

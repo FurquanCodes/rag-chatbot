@@ -172,7 +172,7 @@ class ChatRequest(BaseModel):
         description="Number of chunks to retrieve (1-20)"
     )
     relevance_threshold: float = Field(
-        default=0.7,
+        default=0.0,
         ge=0.0,
         le=1.0,
         description="Minimum relevance score (0-1)"
@@ -361,16 +361,21 @@ class HealthCheckResponse(BaseModel):
 # ============ CHUNK SCHEMA (Internal) ============
 
 class TextChunk(BaseModel):
-    chunk_id: str = Field(...)
-    file_id: str = Field(...)
-    filename: Optional[str] = Field(default=None)
-    chunk_index: int = Field(...)
-    text: str = Field(...)
-    page_number: Optional[int] = Field(default=None)
-    section_heading: Optional[str] = Field(default=None)
-    embedding: Optional[List[float]] = Field(default=None)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
+    """A single text chunk from a document"""
+    chunk_id: str = Field(..., description="Unique chunk identifier")
+    file_id: str = Field(..., description="Parent file ID")
+    chunk_index: int = Field(..., description="Position in document (0-indexed)")
+    text: str = Field(..., description="Actual text content")
+    page_number: Optional[int] = Field(default=None, description="Page number")
+    section_heading: Optional[str] = Field(default=None, description="Section title")
+    embedding: Optional[List[float]] = Field(
+        default=None,
+        description="Embedding vector (768 dimensions)"
+    )
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow,
+        description="Creation timestamp"
+    )
 
 
 # ============ FILE METADATA SCHEMA (Internal) ============

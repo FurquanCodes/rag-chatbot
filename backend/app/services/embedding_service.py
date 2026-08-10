@@ -35,7 +35,7 @@ def generate_fallback_vector(text: str, dimension: int = 768) -> List[float]:
 class EmbeddingConfig:
     MODEL = "models/embedding-001"
     DIMENSION = 768
-    BATCH_SIZE = 50
+    BATCH_SIZE = 100
     MAX_RETRIES = 3
     RETRY_DELAY = 1
     REQUESTS_PER_MINUTE = 60
@@ -76,21 +76,30 @@ class GoogleEmbeddingsAPI:
         self.config = EmbeddingConfig()
         self.last_request_time = 0
         self.configured = False
+        self._failed_key = False
         self._check_config()
 
     def _check_config(self) -> bool:
-        key = (settings.google_api_key or "").strip()
-        if not key or "your_" in key.lower() or "here" in key.lower():
+        if self._failed_key:
             self.configured = False
-        else:
-            try:
-                genai.configure(api_key=key)
-                self.configured = True
-            except Exception:
-                self.configured = False
+            return False
+
+        key = (settings.google_api_key or "").strip()
+        if not key or "your_" in key.lower() or "here" in key.lower() or not key.startswith("AIzaSy"):
+            self.configured = False
+            return False
+
+        try:
+            genai.configure(api_key=key)
+            self.configured = True
+        except Exception:
+            self.configured = False
+            self._failed_key = True
         return self.configured
 
     def _rate_limit(self) -> None:
+        if not self.configured:
+            return
         elapsed = time.time() - self.last_request_time
         if elapsed < self.config.MIN_REQUEST_INTERVAL:
             sleep_time = self.config.MIN_REQUEST_INTERVAL - elapsed
@@ -98,8 +107,7 @@ class GoogleEmbeddingsAPI:
         self.last_request_time = time.time()
 
     def embed_text(self, text: str) -> Optional[List[float]]:
-        self._check_config()
-        if not self.configured:
+        if not self._check_config():
             return generate_fallback_vector(text, self.config.DIMENSION)
 
         if not text or not text.strip():
@@ -119,14 +127,14 @@ class GoogleEmbeddingsAPI:
             return embedding
         except Exception:
             self.configured = False
+            self._failed_key = True
             return generate_fallback_vector(text, self.config.DIMENSION)
 
     def embed_batch(self, texts: List[str]) -> List[Optional[List[float]]]:
         if not texts:
             return []
 
-        self._check_config()
-        if not self.configured:
+        if not self._check_config():
             return [generate_fallback_vector(text, self.config.DIMENSION) for text in texts]
 
         results = []
@@ -146,17 +154,19 @@ class GoogleEmbeddingsAPI:
                     results.extend(embeddings)
                 else:
                     for text in batch_texts:
-                        results.append(self.embed_text(text))
+                        results.append(generate_fallback_vector(text, self.config.DIMENSION))
             except Exception:
                 self.configured = False
+                self._failed_key = True
+                remaining_count = len(texts) - len(results)
+                logger.warning(f"Embedding API error or key failure. Generating {remaining_count} fallback vectors in memory.")
                 for text in texts[len(results):]:
                     results.append(generate_fallback_vector(text, self.config.DIMENSION))
                 break
         return results
 
     def check_quota(self) -> Tuple[bool, Optional[str]]:
-        self._check_config()
-        if not self.configured:
+        if not self._check_config():
             return False, "Google API key not configured or invalid"
         try:
             response = genai.embed_content(
@@ -168,6 +178,7 @@ class GoogleEmbeddingsAPI:
                 return True, None
             return False, "Empty response from API"
         except Exception as e:
+            self._failed_key = True
             return False, str(e)
 
 
@@ -245,4 +256,4 @@ class EmbeddingService:
 def get_embedding_service() -> EmbeddingService:
     if not hasattr(get_embedding_service, '_instance'):
         get_embedding_service._instance = EmbeddingService()
-    return get_embedding_service._instance
+    return get_embedding_service._instance

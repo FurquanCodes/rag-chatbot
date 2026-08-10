@@ -67,28 +67,14 @@ class TextExtractor:
     
     @staticmethod
     def extract_from_pdf(file_path: str) -> Tuple[str, int, List[str]]:
-        """
-        Extract text from PDF file
-        
-        Args:
-            file_path: Path to PDF file
-            
-        Returns:
-            Tuple[str, int, List[str]]: (full_text, num_pages, page_texts)
-        """
         logger.info(f"Extracting text from PDF: {file_path}")
         
         try:
             pdf_reader = PdfReader(file_path)
             num_pages = len(pdf_reader.pages)
-            page_texts = []
-            full_text = ""
-            
-            for page_num, page in enumerate(pdf_reader.pages):
-                # Extract text from page
-                page_text = page.extract_text()
-                page_texts.append(page_text)
-                full_text += f"\n\n--- Page {page_num + 1} ---\n{page_text}"
+            page_texts = [page.extract_text() or "" for page in pdf_reader.pages]
+            full_text_chunks = [f"--- Page {i + 1} ---\n{text}" for i, text in enumerate(page_texts)]
+            full_text = "\n\n".join(full_text_chunks)
             
             logger.info(f"✅ Extracted {num_pages} pages from PDF")
             return full_text, num_pages, page_texts
@@ -99,32 +85,13 @@ class TextExtractor:
     
     @staticmethod
     def extract_from_docx(file_path: str) -> Tuple[str, int, List[str]]:
-        """
-        Extract text from DOCX (Word) file
-        
-        Args:
-            file_path: Path to DOCX file
-            
-        Returns:
-            Tuple[str, int, List[str]]: (full_text, num_paragraphs, paragraph_texts)
-        """
         logger.info(f"Extracting text from DOCX: {file_path}")
         
         try:
             doc = DocxDocument(file_path)
-            full_text = ""
-            paragraph_texts = []
-            
-            for para_num, para in enumerate(doc.paragraphs):
-                if para.text.strip():  # Skip empty paragraphs
-                    paragraph_texts.append(para.text)
-                    full_text += f"\n{para.text}"
-            
-            # Also extract table data
-            for table in doc.tables:
-                for row in table.rows:
-                    row_text = " | ".join([cell.text for cell in row.cells])
-                    full_text += f"\n{row_text}"
+            paragraph_texts = [p.text for p in doc.paragraphs if p.text and p.text.strip()]
+            table_lines = [" | ".join([cell.text for cell in row.cells]) for table in doc.tables for row in table.rows]
+            full_text = "\n".join(paragraph_texts + table_lines)
             
             logger.info(f"✅ Extracted {len(paragraph_texts)} paragraphs from DOCX")
             return full_text, len(paragraph_texts), paragraph_texts
@@ -135,33 +102,20 @@ class TextExtractor:
     
     @staticmethod
     def extract_from_pptx(file_path: str) -> Tuple[str, int, List[str]]:
-        """
-        Extract text from PPTX (PowerPoint) file
-        
-        Args:
-            file_path: Path to PPTX file
-            
-        Returns:
-            Tuple[str, int, List[str]]: (full_text, num_slides, slide_texts)
-        """
         logger.info(f"Extracting text from PPTX: {file_path}")
         
         try:
             presentation = Presentation(file_path)
-            full_text = ""
             slide_texts = []
+            full_chunks = []
             
             for slide_num, slide in enumerate(presentation.slides):
-                slide_text = ""
-                
-                # Extract text from shapes
-                for shape in slide.shapes:
-                    if hasattr(shape, "text") and shape.text.strip():
-                        slide_text += f"\n{shape.text}"
-                
-                slide_texts.append(slide_text)
-                full_text += f"\n\n--- Slide {slide_num + 1} ---\n{slide_text}"
+                texts = [shape.text for shape in slide.shapes if hasattr(shape, "text") and shape.text and shape.text.strip()]
+                combined = "\n".join(texts)
+                slide_texts.append(combined)
+                full_chunks.append(f"--- Slide {slide_num + 1} ---\n{combined}")
             
+            full_text = "\n\n".join(full_chunks)
             logger.info(f"✅ Extracted {len(presentation.slides)} slides from PPTX")
             return full_text, len(presentation.slides), slide_texts
             
@@ -228,19 +182,10 @@ class TextChunker:
     
     @staticmethod
     def clean_text(text: str) -> str:
-        """
-        Clean text: remove extra whitespace, normalize
-        
-        Args:
-            text: Raw text
-            
-        Returns:
-            str: Cleaned text
-        """
-        # Remove extra whitespace
-        text = re.sub(r'\s+', ' ', text)
-        # Remove special characters but keep basic punctuation
-        text = re.sub(r'[^\w\s.,!?;:\'-]', '', text)
+        if not text:
+            return ""
+        text = re.sub(r'[ \t]+', ' ', text)
+        text = re.sub(r'\n{3,}', '\n\n', text)
         return text.strip()
     
     @staticmethod
@@ -249,17 +194,6 @@ class TextChunker:
         chunk_size: int = None,
         overlap: int = None
     ) -> List[TextChunk]:
-        """
-        Split text into overlapping chunks
-        
-        Args:
-            text: Full text to chunk
-            chunk_size: Size of each chunk (default: from config)
-            overlap: Overlap between chunks (default: from config)
-            
-        Returns:
-            List[TextChunk]: List of text chunks with metadata
-        """
         if chunk_size is None:
             chunk_size = settings.chunk_size
         if overlap is None:
@@ -267,14 +201,12 @@ class TextChunker:
         
         logger.info(f"Chunking text: chunk_size={chunk_size}, overlap={overlap}")
         
-        # Clean text
         text = TextChunker.clean_text(text)
         
-        if len(text) < chunk_size:
-            # If text is smaller than chunk size, return as single chunk
+        if len(text) <= chunk_size:
             chunk = TextChunk(
                 chunk_id=str(uuid.uuid4()),
-                file_id="",  # Will be set later
+                file_id="",
                 chunk_index=0,
                 text=text,
                 page_number=None,
@@ -286,32 +218,30 @@ class TextChunker:
         chunks = []
         start_idx = 0
         chunk_index = 0
+        step = chunk_size - overlap
+        if step <= 0:
+            step = chunk_size
         
         while start_idx < len(text):
-            # Calculate end index
             end_idx = min(start_idx + chunk_size, len(text))
+            chunk_text = text[start_idx:end_idx].strip()
             
-            # Extract chunk
-            chunk_text = text[start_idx:end_idx]
+            if chunk_text:
+                chunk = TextChunk(
+                    chunk_id=str(uuid.uuid4()),
+                    file_id="",
+                    chunk_index=chunk_index,
+                    text=chunk_text,
+                    page_number=None,
+                    section_heading=None
+                )
+                chunks.append(chunk)
+                chunk_index += 1
             
-            # Create chunk object
-            chunk = TextChunk(
-                chunk_id=str(uuid.uuid4()),
-                file_id="",  # Will be set later
-                chunk_index=chunk_index,
-                text=chunk_text.strip(),
-                page_number=None,
-                section_heading=None
-            )
-            chunks.append(chunk)
-            
-            # Move to next chunk (with overlap)
-            start_idx = end_idx - overlap
-            chunk_index += 1
-            
-            # Prevent infinite loop if overlap >= chunk_size
-            if start_idx >= end_idx:
+            if end_idx >= len(text):
                 break
+                
+            start_idx += step
         
         logger.info(f"✅ Created {len(chunks)} chunks from text")
         return chunks

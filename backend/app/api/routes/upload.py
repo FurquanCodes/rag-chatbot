@@ -26,35 +26,12 @@ router = APIRouter(prefix="/api/v1", tags=["Documents"])
 # ============ UPLOAD ENDPOINT ============
 
 @router.post("/upload", response_model=UploadResponse, status_code=status.HTTP_201_CREATED)
-async def upload_documents(
+def upload_documents(
     files: List[UploadFile] = File(..., description="Documents to upload (PDF, DOCX, PPTX, TXT)"),
     collection_id: str = Form(default="default", description="User/collection ID")
 ) -> UploadResponse:
-    """
-    Upload and process documents
-    
-    Complete pipeline:
-    1. Validate files
-    2. Extract text
-    3. Chunk text
-    4. Generate embeddings
-    5. Store in FAISS
-    
-    Args:
-        files: List of uploaded files
-        collection_id: User/collection identifier
-        
-    Returns:
-        UploadResponse: Upload status and details
-        
-    Raises:
-        HTTPException: If validation or processing fails
-    """
-    
     start_time = time.time()
     logger.info(f"📤 Upload initiated: {len(files)} files, collection_id={collection_id}")
-    
-    # ============ INPUT VALIDATION ============
     
     if not files:
         logger.error("❌ No files provided")
@@ -81,14 +58,11 @@ async def upload_documents(
     if not collection_id or not collection_id.strip():
         collection_id = "default"
     
-    # ============ PROCESS FILES ============
-    
     uploaded_files_info = []
     total_chunks = 0
     total_embeddings = 0
     failed_files = []
     
-    # Initialize services
     file_processor = FileProcessor()
     embedding_service = EmbeddingService()
     faiss_store = get_faiss_store()
@@ -96,12 +70,8 @@ async def upload_documents(
     for file_idx, file in enumerate(files, 1):
         try:
             logger.info(f"Processing file {file_idx}/{len(files)}: {file.filename}")
-            
-            # Get file type
             file_type = file.filename.split('.')[-1].lower()
-            
-            # Read file content
-            file_content = await file.read()
+            file_content = file.file.read()
             
             # ============ STEP 1: PROCESS FILE ============
             logger.info(f"Step 1: Processing file...")
@@ -158,16 +128,6 @@ async def upload_documents(
                 })
                 continue
             
-            # ============ STEP 4: SAVE FAISS INDEX ============
-            logger.info(f"Step 4: Persisting FAISS index to disk...")
-            success, error = faiss_store.save_index()
-            
-            if not success:
-                logger.error(f"⚠️ Warning: Failed to save index: {error}")
-                # Continue anyway - index is still in memory
-            
-            # ============ SUCCESS ============
-            
             file_info = FileInfo(
                 filename=file.filename,
                 file_id=metadata.file_id,
@@ -188,7 +148,6 @@ async def upload_documents(
             )
             
         except ValueError as e:
-            # Validation error
             logger.error(f"❌ Validation error for {file.filename}: {str(e)}")
             failed_files.append({
                 "filename": file.filename,
@@ -196,15 +155,18 @@ async def upload_documents(
             })
             
         except Exception as e:
-            # Processing error
             logger.error(f"❌ Processing error for {file.filename}: {str(e)}")
             failed_files.append({
                 "filename": file.filename,
                 "reason": f"Processing failed: {str(e)}"
             })
     
-    # ============ BUILD RESPONSE ============
-    
+    if uploaded_files_info:
+        logger.info("Persisting FAISS index to disk...")
+        success, error = faiss_store.save_index()
+        if not success:
+            logger.error(f"⚠️ Warning: Failed to save index: {error}")
+
     processing_time = time.time() - start_time
     
     if not uploaded_files_info:

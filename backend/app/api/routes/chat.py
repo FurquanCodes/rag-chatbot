@@ -1,6 +1,19 @@
 import logging
+import re
 from typing import Optional
 from fastapi import APIRouter, HTTPException, status
+
+try:
+    from bs4 import BeautifulSoup
+    def clean_html(text: str) -> str:
+        if not text:
+            return ""
+        return BeautifulSoup(text, "html.parser").get_text()
+except ImportError:
+    def clean_html(text: str) -> str:
+        if not text:
+            return ""
+        return re.sub(r'<[^>]+>', '', text)
 
 from app.utils.config import settings
 from app.utils.logger import get_logger
@@ -15,11 +28,16 @@ router = APIRouter(prefix="/api/v1", tags=["Chat"])
 
 
 @router.post("/chat", response_model=ChatResponse, status_code=status.HTTP_200_OK)
-async def chat(request: ChatRequest) -> ChatResponse:
+def chat(request: ChatRequest) -> ChatResponse:
+    logger.info(f"Chat request: {request.question[:50]}...")
+    logger.info(f"Collection: {request.collection_id}")
+    logger.info(f"Strategy: {request.search_type}")
+
     try:
         rag_service = get_rag_service()
 
         if request.search_type in ["documents_only", "hybrid"]:
+            logger.info("Searching documents...")
             response, error = rag_service.answer_question(
                 question=request.question,
                 top_k=request.top_k,
@@ -27,11 +45,13 @@ async def chat(request: ChatRequest) -> ChatResponse:
             )
 
             if error is None and response:
+                logger.info("Answer found in documents")
                 return ChatResponse(
                     status="success",
                     data=response
                 )
             else:
+                logger.warning(f"No relevant context in documents: {error}")
                 if request.search_type == "documents_only":
                     raise HTTPException(
                         status_code=status.HTTP_404_NOT_FOUND,
@@ -43,10 +63,12 @@ async def chat(request: ChatRequest) -> ChatResponse:
                     )
 
         if request.search_type in ["wikipedia_only", "hybrid"]:
+            logger.info("Searching Wikipedia as fallback...")
             wiki_service = WikipediaService()
             wiki_results, error = wiki_service.search(request.question)
 
             if error or not wiki_results:
+                logger.error(f"Wikipedia search failed: {error}")
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail={
@@ -70,11 +92,14 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
             sources = []
             for result in wiki_results:
+                snippet_raw = result.get('snippet', '') or result.get('summary', '')
+                snippet_text = clean_html(snippet_raw)
+                evidence = snippet_text[:200] + "..." if len(snippet_text) > 200 else snippet_text
                 source = {
                     "source_type": "wikipedia",
                     "source_name": f"Wikipedia - {result['title']}",
                     "wikipedia_url": result['url'],
-                    "evidence_snippet": result['summary'][:200] + "..." if len(result['summary']) > 200 else result['summary'],
+                    "evidence_snippet": evidence,
                     "relevance_score": result.get('relevance_score', 0.8),
                     "page_number": None,
                     "section_heading": None
@@ -111,6 +136,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         raise
 
     except Exception as e:
+        logger.error(f"Unexpected error in chat: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
@@ -119,4 +145,4 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 "error_code": "INTERNAL_ERROR",
                 "details": str(e) if settings.api_env == "development" else None
             }
-        )
+        )

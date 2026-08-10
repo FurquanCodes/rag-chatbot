@@ -1,7 +1,6 @@
 import axios from "axios";
 
-const BASE_URL = import.meta.env.VITE_API_URL || "";
-
+const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 function extractErrorMessage(error) {
   if (error.response && error.response.data) {
@@ -30,22 +29,35 @@ export async function uploadDocument(files, collectionId = "default") {
   }
 }
 
+export async function uploadDocuments(files, collectionId = "default") {
+  return uploadDocument(files, collectionId);
+}
+
 export async function askQuestion(options) {
   const {
     question,
     collectionId = "default",
+    collection_id,
     searchType = "hybrid",
+    search_type,
     topK = 5,
+    top_k,
     relevanceThreshold = 0.7,
+    relevance_threshold,
   } = typeof options === "string" ? { question: options } : options;
+
+  const targetCollection = collection_id || collectionId;
+  const targetStrategy = search_type || searchType;
+  const targetTopK = top_k || topK;
+  const targetThreshold = relevance_threshold || relevanceThreshold;
 
   try {
     const res = await axios.post(`${BASE_URL}/api/v1/chat`, {
       question,
-      collection_id: collectionId,
-      search_type: searchType,
-      top_k: topK,
-      relevance_threshold: relevanceThreshold,
+      collection_id: targetCollection,
+      search_type: targetStrategy,
+      top_k: targetTopK,
+      relevance_threshold: targetThreshold,
     });
     const data = res.data.data || res.data;
     const sourcesList = data.sources || [];

@@ -5,8 +5,30 @@ Sets up logging for the entire application
 
 import logging
 import logging.config
+import sys
+import io
 from pathlib import Path
 from app.utils.config import settings, LOG_DIR
+
+
+def _get_utf8_stream():
+    """Return a UTF-8 safe wrapper around stdout for Windows compatibility."""
+    if hasattr(sys.stdout, 'buffer'):
+        return io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+    return sys.stdout
+
+
+class UTF8StreamHandler(logging.StreamHandler):
+    """StreamHandler that always writes in UTF-8 to avoid cp1252 errors on Windows."""
+    def __init__(self):
+        super().__init__(stream=_get_utf8_stream())
+
+    def emit(self, record):
+        try:
+            super().emit(record)
+        except UnicodeEncodeError:
+            record.msg = record.msg.encode('ascii', 'replace').decode('ascii')
+            super().emit(record)
 
 
 def setup_logging():
@@ -14,61 +36,30 @@ def setup_logging():
     Configure logging for the application
     Creates both file and console handlers
     """
-    
-    # Create logs directory if it doesn't exist
     LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_file = str(LOG_DIR / "app.log")
     
-    import sys
-    if hasattr(sys.stdout, "reconfigure"):
-        try:
-            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
-
-    logging_config = {
-        "version": 1,
-        "disable_existing_loggers": False,
-        "formatters": {
-            "standard": {
-                "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                "datefmt": "%Y-%m-%d %H:%M:%S"
-            },
-            "detailed": {
-                "format": "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s() - %(message)s",
-                "datefmt": "%Y-%m-%d %H:%M:%S"
-            }
-        },
-        "handlers": {
-            "console": {
-                "class": "logging.StreamHandler",
-                "level": settings.log_level,
-                "formatter": "standard",
-                "stream": "ext://sys.stdout"
-            },
-            "file": {
-                "class": "logging.FileHandler",
-                "level": settings.log_level,
-                "formatter": "detailed",
-                "filename": str(LOG_DIR / "app.log"),
-                "mode": "a",
-                "encoding": "utf-8"
-            }
-        },
-        "root": {
-            "level": settings.log_level,
-            "handlers": ["console", "file"]
-        },
-        "loggers": {
-            "app": {
-                "level": settings.log_level,
-                "handlers": ["console", "file"],
-                "propagate": False
-            }
-        }
-    }
+    root_logger = logging.getLogger()
+    root_logger.setLevel(settings.log_level)
     
-    # Apply logging configuration
-    logging.config.dictConfig(logging_config)
+    if not root_logger.handlers:
+        console_handler = UTF8StreamHandler()
+        console_handler.setLevel(settings.log_level)
+        console_formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
+        )
+        console_handler.setFormatter(console_formatter)
+        root_logger.addHandler(console_handler)
+        
+        file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
+        file_handler.setLevel(settings.log_level)
+        file_formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s() - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
+        )
+        file_handler.setFormatter(file_formatter)
+        root_logger.addHandler(file_handler)
 
 
 def get_logger(name: str) -> logging.Logger:

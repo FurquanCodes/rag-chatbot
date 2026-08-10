@@ -49,7 +49,7 @@ app = FastAPI(
 # Enable CORS for frontend communication
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.allowed_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -107,7 +107,7 @@ async def global_exception_handler(request, exc):
     Global exception handler
     Catches all unhandled exceptions and returns proper error response
     """
-    logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
+    logger.error("Unhandled exception: %s", str(exc), exc_info=True)
     return JSONResponse(
         status_code=500,
         content={

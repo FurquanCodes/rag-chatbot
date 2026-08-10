@@ -73,7 +73,7 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 def print_startup_info():
     print("\n" + "="*60)
-    print("RAG CHATBOT BACKEND STARTING")
+    print("[*] RAG CHATBOT BACKEND STARTING")
     print("="*60)
     print(f"Environment: {settings.api_env}")
     print(f"API Server: {settings.api_host}:{settings.api_port}")

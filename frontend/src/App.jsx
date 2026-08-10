@@ -121,9 +121,11 @@ function App() {
     });
   }
 
-  function handleUploaded(name) {
+  function handleUploaded(name, fileId) {
     updateActiveChat({
       fileName: name,
+      fileId: fileId,
+      title: `📄 ${name}`,
       messages: [
         ...activeChat.messages,
         {
@@ -145,19 +147,25 @@ function App() {
   }
 
   function setMessages(updater) {
-    const newMessages =
-      typeof updater === "function" ? updater(activeChat.messages) : updater;
-    const firstUserMessage = newMessages.find((m) => m.role === "user");
-    const newTitle = firstUserMessage
-      ? generateTitle(firstUserMessage.text)
-      : activeChat.fileName
-      ? `📄 ${activeChat.fileName}`
-      : "New Chat";
-
-    updateActiveChat({
-      messages: newMessages,
-      title: newTitle,
-    });
+    setChats((prevChats) =>
+      prevChats.map((c) => {
+        if (c.id !== activeChatId) return c;
+        const currentMsgs = c.messages || [];
+        const newMsgs =
+          typeof updater === "function" ? updater(currentMsgs) : updater;
+        const firstUserMsg = newMsgs.find((m) => m.role === "user");
+        const newTitle = firstUserMsg
+          ? generateTitle(firstUserMsg.text)
+          : c.fileName
+          ? `📄 ${c.fileName}`
+          : c.title || "New Chat";
+        return {
+          ...c,
+          messages: newMsgs,
+          title: newTitle,
+        };
+      })
+    );
   }
 
   return (
@@ -178,9 +186,10 @@ function App() {
       />
       <div className="flex flex-col flex-1 min-w-0">
         <ChatWindow
-          messages={activeChat.messages}
+          messages={activeChat.messages || []}
           setMessages={setMessages}
           fileName={activeChat.fileName}
+          fileId={activeChat.fileId}
           onUploaded={handleUploaded}
           searchStrategy={searchStrategy}
           documentsCount={documents ? documents.length : 0}

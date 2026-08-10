@@ -10,7 +10,9 @@ function UploadBox({ onUploaded, isUploading, setIsUploading }) {
     try {
       const res = await uploadDocuments(files);
       const fileNames = files.map((f) => f.name).join(", ");
-      if (onUploaded) onUploaded(fileNames, res);
+      const uploadedFiles = res?.data?.uploaded_files || [];
+      const fileId = uploadedFiles.length > 0 ? uploadedFiles[0].file_id : null;
+      if (onUploaded) onUploaded(fileNames, fileId);
     } catch (err) {
       console.error("Upload error:", err);
       alert("Failed to upload document. Please try again.");

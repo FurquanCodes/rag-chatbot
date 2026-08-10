@@ -59,13 +59,14 @@ async def chat(request: ChatRequest) -> ChatResponse:
         # ============ STEP 1: TRY DOCUMENTS SEARCH ============
         
         if request.search_type in ["documents_only", "hybrid"]:
-            logger.info("Step 1: Searching documents...")
+            logger.info(f"Step 1: Searching documents... (file_id={request.file_id})")
             
             rag_service = get_rag_service()
             response, error = rag_service.answer_question(
                 question=request.question,
                 top_k=request.top_k,
-                relevance_threshold=0.0
+                relevance_threshold=0.0,
+                file_id=request.file_id
             )
             
             if error is None and response:

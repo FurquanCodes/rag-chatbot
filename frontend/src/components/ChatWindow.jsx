@@ -7,6 +7,7 @@ function ChatWindow({
   messages,
   setMessages,
   fileName,
+  fileId,
   onUploaded,
   searchStrategy,
   documentsCount,
@@ -35,6 +36,7 @@ function ChatWindow({
       const result = await askQuestion({
         question: textToSend,
         collection_id: "default",
+        file_id: fileId || undefined,
         search_type: searchStrategy,
         top_k: 5,
         relevance_threshold: 0.0,

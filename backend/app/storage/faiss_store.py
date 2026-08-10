@@ -149,11 +149,11 @@ class FAISSVectorStore:
             self.index.add(vectors_array)
             self.vector_count = self.index.ntotal
             
+            # Store metadata
             for chunk in valid_chunks:
                 metadata = {
                     "chunk_id": chunk.chunk_id,
                     "file_id": chunk.file_id,
-                    "filename": getattr(chunk, "filename", None),
                     "chunk_index": chunk.chunk_index,
                     "text": chunk.text,
                     "page_number": chunk.page_number,
@@ -161,7 +161,6 @@ class FAISSVectorStore:
                     "created_at": chunk.created_at.isoformat() if chunk.created_at else None
                 }
                 self.metadata.append(metadata)
-
             
             logger.info(f"✅ Added {len(valid_chunks)} vectors (total: {self.vector_count})")
             return True, None
@@ -175,33 +174,9 @@ class FAISSVectorStore:
         self,
         query_vector: List[float],
         k: int = 5,
-        threshold: float = 0.0
+        threshold: float = 0.0,
+        file_id: Optional[str] = None
     ) -> Tuple[List[Dict], Optional[str]]:
-        """
-        Search for similar vectors in index
-        
-        Args:
-            query_vector: Query embedding (768-dim)
-            k: Number of results to return
-            threshold: Minimum similarity threshold (0-1, 0=no threshold)
-            
-        Returns:
-            Tuple[List[Dict], Optional[str]]: (results, error_message)
-            
-        Results format:
-        [
-            {
-                "rank": 1,
-                "chunk_id": "uuid-123",
-                "file_id": "uuid-456",
-                "text": "...",
-                "page_number": 1,
-                "similarity_score": 0.92  # 0-1, higher=better
-            },
-            ...
-        ]
-        """
-        
         if self.vector_count == 0:
             error = "No vectors in index"
             logger.error(f"❌ {error}")
@@ -213,48 +188,47 @@ class FAISSVectorStore:
             return [], error
         
         try:
-            logger.info(f"Searching for top-{k} similar vectors")
-            
-            # Prepare query vector
+            logger.info(f"Searching for top-{k} similar vectors (file_id={file_id})")
             query = np.array([query_vector], dtype=np.float32)
-            
-            # Normalize for cosine similarity
             faiss.normalize_L2(query)
             
-            # Search
-            # FAISS returns distances and indices
-            # For normalized L2, distance = 2 - 2*cosine_similarity
-            # So: similarity = 1 - (distance / 2)
-            distances, indices = self.index.search(query, min(k, self.vector_count))
+            search_k = self.vector_count if file_id else min(k * 4, self.vector_count)
+            distances, indices = self.index.search(query, search_k)
             
             results = []
-            all_candidates = []
+            rank = 1
             
-            for rank, (distance, idx) in enumerate(zip(distances[0], indices[0]), 1):
+            for distance, idx in zip(distances[0], indices[0]):
                 if idx < 0 or idx >= len(self.metadata):
                     continue
-                similarity_score = max(0.0, 1.0 - (distance / 2.0))
+                    
                 metadata = self.metadata[idx]
+                
+                if file_id and metadata["file_id"] != file_id:
+                    continue
+                
+                similarity_score = max(0.0, 1.0 - (distance / 2.0))
+                if similarity_score < threshold:
+                    continue
                 
                 result = {
                     "rank": rank,
                     "chunk_id": metadata["chunk_id"],
                     "file_id": metadata["file_id"],
-                    "filename": metadata.get("filename"),
                     "chunk_index": metadata["chunk_index"],
                     "text": metadata["text"],
                     "page_number": metadata["page_number"],
                     "section_heading": metadata["section_heading"],
                     "similarity_score": float(similarity_score)
                 }
+                results.append(result)
+                rank += 1
                 
-                all_candidates.append(result)
-                if similarity_score >= threshold:
-                    results.append(result)
+                if len(results) >= k:
+                    break
             
-            final_results = results if results else all_candidates
-            logger.info(f"✅ Found {len(final_results)} results")
-            return final_results, None
+            logger.info(f"✅ Found {len(results)} results (file_id={file_id}, threshold={threshold})")
+            return results, None
             
         except Exception as e:
             error = f"Search failed: {str(e)}"
@@ -293,18 +267,23 @@ class FAISSVectorStore:
                 logger.warning(f"⚠️ No vectors found for file_id: {file_id}")
                 return True, None
             
+            # Rebuild index without deleted vectors
             if indices_to_keep:
-                all_vectors = self.index.reconstruct_n(0, self.vector_count)
+                # Get vectors to keep
+                all_vectors = faiss.vector_to_array(self.index.reconstruct_n(0, self.vector_count))
                 vectors_to_keep = all_vectors[indices_to_keep]
-
+                
+                # Create new index
                 self._create_new_index()
-
+                
+                # Add vectors back
                 self.index.add(vectors_to_keep)
                 self.metadata = new_metadata
                 self.vector_count = self.index.ntotal
             else:
+                # No vectors left, clear index
                 self._create_new_index()
-
+            
             logger.info(f"✅ Deleted {deleted_count} vectors for file_id: {file_id}")
             return True, None
             

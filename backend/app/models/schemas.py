@@ -161,6 +161,10 @@ class ChatRequest(BaseModel):
         default="default",
         description="User/collection ID for multi-tenant support"
     )
+    file_id: Optional[str] = Field(
+        default=None,
+        description="Optional target file ID to restrict search"
+    )
     search_type: SearchType = Field(
         default=SearchType.HYBRID,
         description="Search strategy: documents_only, wikipedia_only, or hybrid"

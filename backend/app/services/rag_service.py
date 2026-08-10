@@ -52,26 +52,15 @@ class RAGService:
         self,
         question: str,
         top_k: int = None,
-        relevance_threshold: float = None
+        relevance_threshold: float = None,
+        file_id: Optional[str] = None
     ) -> Tuple[List[Dict], Optional[str]]:
-        """
-        Retrieve relevant chunks from FAISS
-        
-        Args:
-            question: User's question
-            top_k: Number of chunks to retrieve (default: from config)
-            relevance_threshold: Minimum similarity score (default: from config)
-            
-        Returns:
-            Tuple[List[Dict], Optional[str]]: (retrieved_chunks, error_message)
-        """
-        
         if top_k is None:
             top_k = settings.top_k_retrieval
         if relevance_threshold is None:
             relevance_threshold = 0.0
         
-        logger.info(f"🔍 Retrieving context for question: {question[:50]}...")
+        logger.info(f"🔍 Retrieving context for question: {question[:50]}... (file_id={file_id})")
         
         try:
             logger.debug("Step 1: Embedding question...")
@@ -82,11 +71,12 @@ class RAGService:
                 logger.error(f"❌ {error}")
                 return [], error
             
-            logger.debug(f"Step 2: Searching FAISS (top_k={top_k}, threshold={relevance_threshold})...")
+            logger.debug(f"Step 2: Searching FAISS (top_k={top_k}, threshold={relevance_threshold}, file_id={file_id})...")
             retrieved_chunks, error = self.faiss_store.search(
                 query_vector=question_embedding,
                 k=top_k,
-                threshold=relevance_threshold
+                threshold=relevance_threshold,
+                file_id=file_id
             )
             
             if not retrieved_chunks and self.faiss_store.vector_count > 0:
@@ -94,7 +84,8 @@ class RAGService:
                 retrieved_chunks, error = self.faiss_store.search(
                     query_vector=question_embedding,
                     k=top_k,
-                    threshold=0.0
+                    threshold=0.0,
+                    file_id=file_id
                 )
             
             if error:
@@ -275,30 +266,19 @@ QUESTION:
         self,
         question: str,
         top_k: int = None,
-        relevance_threshold: float = None
+        relevance_threshold: float = None,
+        file_id: Optional[str] = None
     ) -> Tuple[Dict, Optional[str]]:
-        """
-        Complete RAG pipeline: retrieve + generate answer
-        
-        Args:
-            question: User's question
-            top_k: Number of chunks to retrieve
-            relevance_threshold: Minimum similarity threshold
-            
-        Returns:
-            Tuple[Dict, Optional[str]]: (response, error_message)
-        """
-        
         start_time = time.time()
-        logger.info(f"📝 Answering question: {question[:50]}...")
+        logger.info(f"📝 Answering question: {question[:50]}... (file_id={file_id})")
         
         try:
-            # Step 1: Retrieve context
             logger.info("Step 1: Retrieving context from documents...")
             retrieved_chunks, error = self.retrieve_context(
                 question=question,
                 top_k=top_k,
-                relevance_threshold=relevance_threshold
+                relevance_threshold=relevance_threshold,
+                file_id=file_id
             )
             
             if error:

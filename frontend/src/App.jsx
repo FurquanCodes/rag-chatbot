@@ -14,18 +14,11 @@ const STOP_WORDS = new Set([
 ]);
 
 function generateTitle(text) {
-  const words = text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, "")
-    .split(/\s+/)
-    .filter((w) => w && !STOP_WORDS.has(w));
-
-  if (words.length === 0) return "New Chat";
-
-  return words
-    .slice(0, 4)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
+  if (!text || typeof text !== "string") return "New Chat";
+  const cleaned = text.trim();
+  if (!cleaned) return "New Chat";
+  if (cleaned.length <= 28) return cleaned;
+  return cleaned.slice(0, 28) + "...";
 }
 
 function App() {
@@ -155,12 +148,15 @@ function App() {
     const newMessages =
       typeof updater === "function" ? updater(activeChat.messages) : updater;
     const firstUserMessage = newMessages.find((m) => m.role === "user");
+    const newTitle = firstUserMessage
+      ? generateTitle(firstUserMessage.text)
+      : activeChat.fileName
+      ? `📄 ${activeChat.fileName}`
+      : "New Chat";
 
     updateActiveChat({
       messages: newMessages,
-      title: firstUserMessage
-        ? generateTitle(firstUserMessage.text)
-        : "New Chat",
+      title: newTitle,
     });
   }
 

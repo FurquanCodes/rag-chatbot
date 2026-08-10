@@ -37,7 +37,7 @@ function ChatWindow({
         collection_id: "default",
         search_type: searchStrategy,
         top_k: 5,
-        relevance_threshold: 0.7,
+        relevance_threshold: 0.0,
       });
 
       const responseText = result.data?.answer || result.answer || "No response received.";

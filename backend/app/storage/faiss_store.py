@@ -188,11 +188,15 @@ class FAISSVectorStore:
             return [], error
         
         try:
-            logger.info(f"Searching for top-{k} similar vectors (file_id={file_id})")
+            target_file_id = file_id
+            if not target_file_id and self.metadata:
+                target_file_id = self.metadata[-1]["file_id"]
+
+            logger.info(f"Searching for top-{k} similar vectors (target_file_id={target_file_id})")
             query = np.array([query_vector], dtype=np.float32)
             faiss.normalize_L2(query)
             
-            search_k = self.vector_count if file_id else min(k * 4, self.vector_count)
+            search_k = self.vector_count
             distances, indices = self.index.search(query, search_k)
             
             results = []
@@ -204,7 +208,7 @@ class FAISSVectorStore:
                     
                 metadata = self.metadata[idx]
                 
-                if file_id and metadata["file_id"] != file_id:
+                if target_file_id and metadata["file_id"] != target_file_id:
                     continue
                 
                 similarity_score = max(0.0, 1.0 - (distance / 2.0))

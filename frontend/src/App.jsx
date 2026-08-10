@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import Sidebar from "./components/Sidebar";
 import ChatWindow from "./components/ChatWindow";
-import { listDocuments, deleteDocument, checkHealth } from "./api";
+import { listDocuments, deleteDocument, clearAllDocuments, checkHealth } from "./api";
 
 const STOP_WORDS = new Set([
   "the", "a", "an", "is", "are", "was", "were", "am", "be", "been", "being",
@@ -146,6 +146,16 @@ function App() {
     }
   }
 
+  async function handleClearAllDocuments() {
+    if (!window.confirm("Clear all indexed documents from vector store?")) return;
+    try {
+      await clearAllDocuments("default");
+      fetchDocuments();
+    } catch (err) {
+      console.error("Error clearing documents:", err);
+    }
+  }
+
   function setMessages(updater) {
     setChats((prevChats) =>
       prevChats.map((c) => {
@@ -182,6 +192,7 @@ function App() {
         setSearchStrategy={setSearchStrategy}
         documents={documents}
         onDeleteDocument={handleDeleteDocument}
+        onClearAllDocuments={handleClearAllDocuments}
         isUploading={isUploading}
       />
       <div className="flex flex-col flex-1 min-w-0">

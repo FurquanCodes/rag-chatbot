@@ -12,6 +12,7 @@ function Sidebar({
   setSearchStrategy,
   documents,
   onDeleteDocument,
+  onClearAllDocuments,
   isUploading,
 }) {
   return (
@@ -116,12 +117,23 @@ function Sidebar({
         {isOpen && (
           <div>
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                Indexed Documents
-              </h3>
-              <span className="text-xs text-slate-500 font-mono">
-                ({documents ? documents.length : 0})
-              </span>
+              <div className="flex items-center gap-1.5">
+                <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  Indexed Documents
+                </h3>
+                <span className="text-xs text-slate-500 font-mono">
+                  ({documents ? documents.length : 0})
+                </span>
+              </div>
+              {documents && documents.length > 0 && onClearAllDocuments && (
+                <button
+                  onClick={onClearAllDocuments}
+                  className="text-[10px] text-red-400 hover:text-red-300 hover:underline font-medium"
+                  title="Clear all indexed documents"
+                >
+                  Clear All
+                </button>
+              )}
             </div>
 
             {documents && documents.length > 0 ? (

@@ -24,15 +24,16 @@ export async function askQuestion(params) {
       collection_id: "default",
       search_type: "hybrid",
       top_k: 5,
-      relevance_threshold: 0.7,
+      relevance_threshold: 0.0,
     };
   } else {
     payload = {
       question: params.question,
       collection_id: params.collection_id || "default",
+      file_id: params.file_id || undefined,
       search_type: params.search_type || "hybrid",
       top_k: params.top_k || 5,
-      relevance_threshold: params.relevance_threshold || 0.7,
+      relevance_threshold: params.relevance_threshold ?? 0.0,
     };
   }
 
@@ -49,6 +50,13 @@ export async function listDocuments(collectionId = "default") {
 
 export async function deleteDocument(fileId, collectionId = "default") {
   const res = await axios.delete(`${BASE_URL}/api/v1/documents/${fileId}`, {
+    params: { collection_id: collectionId },
+  });
+  return res.data;
+}
+
+export async function clearAllDocuments(collectionId = "default") {
+  const res = await axios.delete(`${BASE_URL}/api/v1/documents-clear-all`, {
     params: { collection_id: collectionId },
   });
   return res.data;

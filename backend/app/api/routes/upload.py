@@ -26,12 +26,35 @@ router = APIRouter(prefix="/api/v1", tags=["Documents"])
 # ============ UPLOAD ENDPOINT ============
 
 @router.post("/upload", response_model=UploadResponse, status_code=status.HTTP_201_CREATED)
-def upload_documents(
+async def upload_documents(
     files: List[UploadFile] = File(..., description="Documents to upload (PDF, DOCX, PPTX, TXT)"),
     collection_id: str = Form(default="default", description="User/collection ID")
 ) -> UploadResponse:
+    """
+    Upload and process documents
+    
+    Complete pipeline:
+    1. Validate files
+    2. Extract text
+    3. Chunk text
+    4. Generate embeddings
+    5. Store in FAISS
+    
+    Args:
+        files: List of uploaded files
+        collection_id: User/collection identifier
+        
+    Returns:
+        UploadResponse: Upload status and details
+        
+    Raises:
+        HTTPException: If validation or processing fails
+    """
+    
     start_time = time.time()
     logger.info(f"📤 Upload initiated: {len(files)} files, collection_id={collection_id}")
+    
+    # ============ INPUT VALIDATION ============
     
     if not files:
         logger.error("❌ No files provided")
@@ -58,11 +81,14 @@ def upload_documents(
     if not collection_id or not collection_id.strip():
         collection_id = "default"
     
+    # ============ PROCESS FILES ============
+    
     uploaded_files_info = []
     total_chunks = 0
     total_embeddings = 0
     failed_files = []
     
+    # Initialize services
     file_processor = FileProcessor()
     embedding_service = EmbeddingService()
     faiss_store = get_faiss_store()
@@ -70,8 +96,12 @@ def upload_documents(
     for file_idx, file in enumerate(files, 1):
         try:
             logger.info(f"Processing file {file_idx}/{len(files)}: {file.filename}")
+            
+            # Get file type
             file_type = file.filename.split('.')[-1].lower()
-            file_content = file.file.read()
+            
+            # Read file content
+            file_content = await file.read()
             
             # ============ STEP 1: PROCESS FILE ============
             logger.info(f"Step 1: Processing file...")
@@ -128,6 +158,16 @@ def upload_documents(
                 })
                 continue
             
+            # ============ STEP 4: SAVE FAISS INDEX ============
+            logger.info(f"Step 4: Persisting FAISS index to disk...")
+            success, error = faiss_store.save_index()
+            
+            if not success:
+                logger.error(f"⚠️ Warning: Failed to save index: {error}")
+                # Continue anyway - index is still in memory
+            
+            # ============ SUCCESS ============
+            
             file_info = FileInfo(
                 filename=file.filename,
                 file_id=metadata.file_id,
@@ -148,6 +188,7 @@ def upload_documents(
             )
             
         except ValueError as e:
+            # Validation error
             logger.error(f"❌ Validation error for {file.filename}: {str(e)}")
             failed_files.append({
                 "filename": file.filename,
@@ -155,18 +196,15 @@ def upload_documents(
             })
             
         except Exception as e:
+            # Processing error
             logger.error(f"❌ Processing error for {file.filename}: {str(e)}")
             failed_files.append({
                 "filename": file.filename,
                 "reason": f"Processing failed: {str(e)}"
             })
     
-    if uploaded_files_info:
-        logger.info("Persisting FAISS index to disk...")
-        success, error = faiss_store.save_index()
-        if not success:
-            logger.error(f"⚠️ Warning: Failed to save index: {error}")
-
+    # ============ BUILD RESPONSE ============
+    
     processing_time = time.time() - start_time
     
     if not uploaded_files_info:
@@ -227,28 +265,29 @@ async def list_documents(collection_id: str = "default"):
         faiss_store = get_faiss_store()
         stats = faiss_store.get_stats()
         
+        # Get unique files from metadata
         unique_files = {}
+        
         for meta in faiss_store.metadata:
             if meta["file_id"] not in unique_files:
                 unique_files[meta["file_id"]] = {
                     "file_id": meta["file_id"],
-                    "filename": meta.get("filename") or meta["file_id"],
                     "chunks": 0,
                     "page_numbers": set()
                 }
+            
             unique_files[meta["file_id"]]["chunks"] += 1
-            if meta.get("page_number"):
+            if meta["page_number"]:
                 unique_files[meta["file_id"]]["page_numbers"].add(meta["page_number"])
         
+        # Format response
         documents = []
         for file_id, info in unique_files.items():
             documents.append({
                 "file_id": file_id,
-                "filename": info["filename"],
                 "chunks": info["chunks"],
                 "pages": len(info["page_numbers"]) if info["page_numbers"] else 0
             })
-
         
         return {
             "status": "success",
@@ -336,5 +375,28 @@ async def delete_document(
                 "status": "error",
                 "message": f"Deletion failed: {str(e)}",
                 "error_code": "DELETION_FAILED"
+            }
+        )
+
+
+@router.delete("/documents-clear-all", tags=["Documents"])
+async def clear_all_documents(collection_id: str = "default"):
+    logger.info(f"🗑️ Clearing all documents for collection: {collection_id}")
+    try:
+        faiss_store = get_faiss_store()
+        faiss_store.clear_index()
+        faiss_store.save_index()
+        return {
+            "status": "success",
+            "message": "All indexed documents cleared successfully"
+        }
+    except Exception as e:
+        logger.error(f"❌ Error clearing all documents: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "status": "error",
+                "message": f"Failed to clear documents: {str(e)}",
+                "error_code": "CLEAR_FAILED"
             }
         )

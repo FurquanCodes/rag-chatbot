@@ -56,91 +56,99 @@ async def chat(request: ChatRequest) -> ChatResponse:
     logger.info(f"   Strategy: {request.search_type}")
     
     try:
-        # ============ STEP 1: TRY DOCUMENTS SEARCH ============
+        rag_service = get_rag_service()
         
         if request.search_type in ["documents_only", "hybrid"]:
             logger.info(f"Step 1: Searching documents... (file_id={request.file_id})")
             
-            rag_service = get_rag_service()
-            response, error = rag_service.answer_question(
+            retrieved_chunks, error = rag_service.retrieve_context(
                 question=request.question,
                 top_k=request.top_k,
                 relevance_threshold=0.0,
                 file_id=request.file_id
             )
             
-            if error is None and response:
-                # Success - answer found in documents
-                logger.info("✅ Answer found in documents")
+            if retrieved_chunks and not error:
+                response, err = rag_service.answer_question(
+                    question=request.question,
+                    top_k=request.top_k,
+                    relevance_threshold=0.0,
+                    file_id=request.file_id
+                )
+                if response and not err:
+                    answer_lower = response.get("answer", "").lower()
+                    missing_phrases = ["i don't have information", "not mentioned in", "no information in the documents", "does not contain", "unable to get information", "unable to find information"]
+                    is_missing = any(p in answer_lower for p in missing_phrases)
+                    if not is_missing or request.search_type == "documents_only":
+                        logger.info("✅ Answer found in documents")
+                        return ChatResponse(
+                            status="success",
+                            data=response
+                        )
+            
+            if request.search_type == "documents_only":
+                logger.info("Document-only mode: returning unable to get information response")
                 return ChatResponse(
                     status="success",
-                    data=response
-                )
-            else:
-                # No relevant context found
-                logger.warning(f"⚠️ No relevant context in documents: {error}")
-                
-                # If documents_only mode, return error
-                if request.search_type == "documents_only":
-                    logger.info("Document-only mode: returning error")
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail={
-                            "status": "error",
-                            "message": "No relevant information found in uploaded documents",
-                            "error_code": "NO_RELEVANT_CONTEXT"
+                    data={
+                        "answer": "Unable to get information about it.",
+                        "sources": [],
+                        "retrieval_details": {
+                            "search_time_ms": 0,
+                            "documents_searched": 0,
+                            "chunks_retrieved": 0,
+                            "fallback_used": False,
+                            "retrieval_strategy": "document_search"
                         }
-                    )
-                
-                # Fall through to Wikipedia (hybrid mode)
-                logger.info("Hybrid mode: falling back to Wikipedia...")
-        
-        # ============ STEP 2: WIKIPEDIA FALLBACK ============
+                    }
+                )
+            
+            logger.info("Hybrid mode: falling back to Wikipedia...")
         
         if request.search_type in ["wikipedia_only", "hybrid"]:
             logger.info("Step 2: Searching Wikipedia as fallback...")
             
             wiki_service = WikipediaService()
             
-            # Search Wikipedia
             wiki_results, error = wiki_service.search(request.question)
             
             if error or not wiki_results:
-                logger.error(f"❌ Wikipedia search failed: {error}")
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail={
-                        "status": "error",
-                        "message": "Failed to find relevant information in documents or Wikipedia",
-                        "error_code": "NO_CONTEXT_AVAILABLE"
+                logger.warning(f"⚠️ Wikipedia search returned no usable results: {error}")
+                return ChatResponse(
+                    status="success",
+                    data={
+                        "answer": "Unable to get information about it.",
+                        "sources": [],
+                        "retrieval_details": {
+                            "search_time_ms": 0,
+                            "documents_searched": 0,
+                            "chunks_retrieved": 0,
+                            "fallback_used": True,
+                            "retrieval_strategy": "wikipedia_search"
+                        }
                     }
                 )
             
-            # Build context from Wikipedia results
-            wiki_context = wiki_service.build_context(wiki_results)
+            wiki_context = wiki_service.build_context(request.question, wiki_results)
             
-            # Call Gemini with Wikipedia context
             answer, error = rag_service.call_gemini(wiki_context)
             
             if error or not answer:
-                logger.error(f"❌ Gemini call with Wikipedia context failed: {error}")
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail={
-                        "status": "error",
-                        "message": "Failed to generate answer",
-                        "error_code": "GENERATION_FAILED"
-                    }
-                )
+                logger.warning(f"⚠️ Gemini call with Wikipedia context failed: {error}")
+                answer = "Unable to get information about it."
             
-            # Format Wikipedia response
             sources = []
             for result in wiki_results:
+                raw_text = result.get('summary') or result.get('snippet') or ''
+                clean_snippet = BeautifulSoup(raw_text, "html.parser").get_text()
+                if len(clean_snippet) > 200:
+                    clean_snippet = clean_snippet[:200] + "..."
+                
                 source = {
                     "source_type": "wikipedia",
                     "source_name": f"Wikipedia - {result['title']}",
                     "wikipedia_url": result['url'],
-                    "evidence_snippet": BeautifulSoup(result.get('snippet', ''), "html.parser").get_text()[:200] + "..." if len(result.get('snippet', '')) > 200 else BeautifulSoup(result.get('snippet', ''), "html.parser").get_text(),
+                    "evidence_snippet": clean_snippet,
                     "relevance_score": result.get('relevance_score', 0.8),
                     "page_number": None,
                     "section_heading": None
@@ -153,7 +161,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 "retrieval_details": {
                     "search_time_ms": 0,
                     "documents_searched": 0,
-                    "chunks_retrieved": 0,
+                    "chunks_retrieved": len(wiki_results),
                     "fallback_used": True,
                     "retrieval_strategy": "wikipedia_search"
                 }

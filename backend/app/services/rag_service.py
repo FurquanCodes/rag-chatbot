@@ -118,15 +118,14 @@ class RAGService:
         
         logger.debug("Building prompt with context...")
         
-        # System instruction
-        system_instruction = """You are a helpful AI assistant specialized in answering questions based on provided documents.
+        system_instruction = """You are a helpful AI assistant specialized in answering user questions using provided document context.
 
-IMPORTANT RULES:
-1. ALWAYS answer based ONLY on the provided context
-2. If the context doesn't contain the answer, say: "I don't have information about this in the documents"
-3. Cite the specific document/section when possible
-4. Be concise and accurate
-5. If multiple documents mention the same topic, consider all of them
+IMPORTANT INSTRUCTIONS:
+1. Answer the user's question accurately using the information in the provided document context.
+2. If the user asks general questions like "What is written in this document", "Summarize the document", or "Explain me python", synthesize and explain the topics, contents, and exercises present in the provided document context.
+3. If the user asks about a specific entity or topic, answer directly using the provided context.
+4. If the provided document context does NOT contain information about the asked topic, reply EXACTLY with: "I don't have information about this topic in the uploaded documents."
+5. Be informative, well-structured, and accurate.
 
 CONTEXT FROM DOCUMENTS:
 ═══════════════════════════════════════════════════════════════════
@@ -163,49 +162,41 @@ QUESTION:
         return system_instruction
     
     def call_gemini(self, prompt: str) -> Tuple[Optional[str], Optional[str]]:
-        """
-        Call Gemini API to generate answer
-        
-        Args:
-            prompt: Formatted prompt with context
-            
-        Returns:
-            Tuple[Optional[str], Optional[str]]: (answer, error_message)
-        """
-        
         if not self.configured:
             error = "Gemini API not configured"
             logger.error(f"❌ {error}")
             return None, error
         
-        try:
-            logger.info("📞 Calling Gemini API...")
-            
-            # Call Gemini
-            model = genai.GenerativeModel(settings.gemini_model)
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
-                    max_output_tokens=1024,
-                    temperature=0.7,
-                    top_p=0.9
+        models_to_try = [settings.gemini_model, "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-flash-latest"]
+        seen_models = set()
+        last_error = None
+        
+        for model_name in models_to_try:
+            if not model_name or model_name in seen_models:
+                continue
+            seen_models.add(model_name)
+            try:
+                logger.info(f"📞 Calling Gemini API with model: {model_name}...")
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(
+                    prompt,
+                    generation_config=genai.types.GenerationConfig(
+                        max_output_tokens=1024,
+                        temperature=0.7,
+                        top_p=0.9
+                    )
                 )
-            )
-            
-            if not response or not response.text:
-                error = "Empty response from Gemini"
-                logger.error(f"❌ {error}")
-                return None, error
-            
-            answer = response.text.strip()
-            logger.info(f"✅ Received response from Gemini ({len(answer)} characters)")
-            
-            return answer, None
-            
-        except Exception as e:
-            error = f"Gemini API call failed: {str(e)}"
-            logger.error(f"❌ {error}")
-            return None, error
+                if response and response.text:
+                    answer = response.text.strip()
+                    logger.info(f"✅ Received response from Gemini model {model_name} ({len(answer)} characters)")
+                    return answer, None
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(f"Gemini API model {model_name} failed: {last_error}")
+        
+        error = f"Gemini API call failed: {last_error}"
+        logger.error(f"❌ {error}")
+        return None, error
     
     def format_response(
         self,
@@ -300,8 +291,9 @@ QUESTION:
             answer, error = self.call_gemini(prompt)
             
             if error:
-                logger.error(f"❌ Gemini call failed: {error}")
-                return {}, error
+                logger.warning(f"⚠️ Gemini call failed ({error}), building direct response from document context")
+                context_snippets = "\n\n".join([f"Excerpt {i+1}:\n{chunk['text']}" for i, chunk in enumerate(retrieved_chunks[:3])])
+                answer = f"Relevant information from your document:\n\n{context_snippets}"
             
             # Step 5: Format response
             logger.info("Step 4: Formatting response...")

@@ -27,6 +27,7 @@ class UTF8StreamHandler(logging.StreamHandler):
         try:
             super().emit(record)
         except UnicodeEncodeError:
+            # Fallback: strip non-ASCII characters and try again
             record.msg = record.msg.encode('ascii', 'replace').decode('ascii')
             super().emit(record)
 
@@ -36,13 +37,18 @@ def setup_logging():
     Configure logging for the application
     Creates both file and console handlers
     """
+    
+    # Create logs directory if it doesn't exist
     LOG_DIR.mkdir(parents=True, exist_ok=True)
+    
     log_file = str(LOG_DIR / "app.log")
     
+    # Set up root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(settings.log_level)
     
     if not root_logger.handlers:
+        # Console handler (UTF-8 safe)
         console_handler = UTF8StreamHandler()
         console_handler.setLevel(settings.log_level)
         console_formatter = logging.Formatter(
@@ -52,6 +58,7 @@ def setup_logging():
         console_handler.setFormatter(console_formatter)
         root_logger.addHandler(console_handler)
         
+        # File handler (UTF-8)
         file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
         file_handler.setLevel(settings.log_level)
         file_formatter = logging.Formatter(
@@ -68,4 +75,4 @@ def get_logger(name: str) -> logging.Logger:
     Usage: logger = get_logger(__name__)
     """
     setup_logging()
-    return logging.getLogger(name)
+    return logging.getLogger(name)

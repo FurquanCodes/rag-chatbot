@@ -32,6 +32,7 @@ async def lifespan(app: FastAPI):
         logger.info(f"Environment: {settings.api_env}")
         logger.info(f"API running on {settings.api_host}:{settings.api_port}")
         yield
+    # SHUTDOWN
     finally:
         logger.info("Shutting down RAG Chatbot Backend")
 
@@ -54,7 +55,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 
 # ============ ROOT ENDPOINT ============

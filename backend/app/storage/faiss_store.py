@@ -34,15 +34,8 @@ class FAISSVectorStore:
     - Persistence: Saves/loads to disk
     """
     
-    def __init__(self, index_path: str = None, dimension: int = 768):
-        """
-        Initialize FAISS Vector Store
-        
-        Args:
-            index_path: Path to save/load index (default: from config)
-            dimension: Vector dimension (default: 768 for Google Embeddings)
-        """
-        self.dimension = dimension
+    def __init__(self, index_path: str = None, dimension: int = None):
+        self.dimension = dimension or settings.embedding_dimension
         self.index_path = Path(index_path) if index_path else FAISS_INDEX_DIR
         self.index_path.mkdir(parents=True, exist_ok=True)
         
@@ -117,22 +110,11 @@ class FAISSVectorStore:
             
             for chunk, embedding in zip(chunks, embeddings):
                 if embedding is None:
-                    logger.warning(f"⚠️ Skipping chunk {chunk.chunk_id}: None embedding")
                     continue
                 
-                # Convert to numpy float32
                 vector = np.array(embedding, dtype=np.float32)
-                
-                # Validate vector dimension
                 if len(vector) != self.dimension:
-                    logger.warning(
-                        f"⚠️ Skipping chunk {chunk.chunk_id}: "
-                        f"wrong dimension {len(vector)} != {self.dimension}"
-                    )
                     continue
-                
-                # Normalize for cosine similarity
-                faiss.normalize_L2(vector.reshape(1, -1))
                 
                 vectors.append(vector)
                 valid_chunks.append(chunk)
@@ -142,10 +124,8 @@ class FAISSVectorStore:
                 logger.error(f"❌ {error}")
                 return False, error
             
-            # Convert to numpy array
             vectors_array = np.array(vectors, dtype=np.float32)
-            
-            # Add to index
+            faiss.normalize_L2(vectors_array)
             self.index.add(vectors_array)
             self.vector_count = self.index.ntotal
             
@@ -188,9 +168,7 @@ class FAISSVectorStore:
             return [], error
         
         try:
-            target_file_id = file_id
-            if not target_file_id and self.metadata:
-                target_file_id = self.metadata[-1]["file_id"]
+            target_file_id = file_id if file_id and str(file_id).strip() else None
 
             logger.info(f"Searching for top-{k} similar vectors (target_file_id={target_file_id})")
             query = np.array([query_vector], dtype=np.float32)
@@ -208,7 +186,7 @@ class FAISSVectorStore:
                     
                 metadata = self.metadata[idx]
                 
-                if target_file_id and metadata["file_id"] != target_file_id:
+                if target_file_id and metadata.get("file_id") != target_file_id:
                     continue
                 
                 similarity_score = max(0.0, 1.0 - (distance / 2.0))
@@ -273,19 +251,13 @@ class FAISSVectorStore:
             
             # Rebuild index without deleted vectors
             if indices_to_keep:
-                # Get vectors to keep
-                all_vectors = faiss.vector_to_array(self.index.reconstruct_n(0, self.vector_count))
+                all_vectors = self.index.reconstruct_n(0, self.vector_count)
                 vectors_to_keep = all_vectors[indices_to_keep]
-                
-                # Create new index
                 self._create_new_index()
-                
-                # Add vectors back
                 self.index.add(vectors_to_keep)
                 self.metadata = new_metadata
                 self.vector_count = self.index.ntotal
             else:
-                # No vectors left, clear index
                 self._create_new_index()
             
             logger.info(f"✅ Deleted {deleted_count} vectors for file_id: {file_id}")

@@ -63,6 +63,6 @@ export async function clearAllDocuments(collectionId = "default") {
 }
 
 export async function checkHealth() {
-  const res = await axios.get(`${BASE_URL}/api/v1/health`, { timeout: 3000 });
+  const res = await axios.get(`${BASE_URL}/api/v1/health`, { timeout: 30000 });
   return res.data;
 }

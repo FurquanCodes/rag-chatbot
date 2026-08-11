@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     
     # ============ Google Gemini API ============
     google_api_key: str = Field(default="", description="Google Gemini API key")
-    gemini_model: str = Field(default="gemini-1.5-flash", description="Gemini model name")
+    gemini_model: str = Field(default="gemini-3.5-flash", description="Gemini model name")
     
     # ============ File Upload Configuration ============
     upload_folder: str = Field(default="./uploads", description="Directory to store uploaded files")
@@ -36,11 +36,11 @@ class Settings(BaseSettings):
     
     # ============ FAISS Vector Store ============
     faiss_index_path: str = Field(default="./faiss_index", description="Path to store FAISS index")
-    embedding_model: str = Field(default="models/embedding-001", description="Google Embedding model")
-    embedding_dimension: int = Field(default=768, description="Embedding vector dimension")
+    embedding_model: str = Field(default="models/gemini-embedding-001", description="Google Embedding model")
+    embedding_dimension: int = Field(default=3072, description="Embedding vector dimension")
     
     # ============ RAG Configuration ============
-    chunk_size: int = Field(default=1000, description="Document chunk size in characters")
+    chunk_size: int = Field(default=2500, description="Document chunk size in characters")
     chunk_overlap: int = Field(default=200, description="Overlap between chunks")
     top_k_retrieval: int = Field(default=5, description="Number of top chunks to retrieve")
     relevance_threshold: float = Field(default=0.0, description="Relevance score threshold (0-1)")
@@ -77,11 +77,10 @@ def get_settings() -> Settings:
 settings = get_settings()
 
 
-# ============ Path Configuration ============
-BASE_DIR = Path(__file__).parent.parent.parent  # Points to backend/ folder
-UPLOAD_DIR = Path(settings.upload_folder).resolve()
-FAISS_INDEX_DIR = Path(settings.faiss_index_path).resolve()
-LOG_DIR = Path(settings.log_file).parent.resolve()
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+UPLOAD_DIR = (BASE_DIR / settings.upload_folder).resolve()
+FAISS_INDEX_DIR = (BASE_DIR / settings.faiss_index_path).resolve()
+LOG_DIR = (BASE_DIR / settings.log_file).parent.resolve()
 
 # Create directories if they don't exist
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

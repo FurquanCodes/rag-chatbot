@@ -5,19 +5,21 @@ Supports: PDF, DOCX, PPTX, TXT
 """
 
 import os
+import zipfile
+import io
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict
 import uuid
 from datetime import datetime
 import logging
+from PIL import Image
+import google.generativeai as genai
 
-# Document parsing libraries
 from pypdf import PdfReader
 from docx import Document as DocxDocument
 from pptx import Presentation
 import re
 
-# Local imports
 from app.utils.config import settings, UPLOAD_DIR
 from app.utils.logger import get_logger
 from app.models.schemas import TextChunk, StoredFileMetadata
@@ -25,32 +27,17 @@ from app.models.schemas import TextChunk, StoredFileMetadata
 logger = get_logger(__name__)
 
 
-# ============ FILE VALIDATION ============
-
 class FileValidator:
-    """Validates uploaded files before processing"""
     
     ALLOWED_EXTENSIONS = {"pdf", "docx", "pptx", "txt"}
-    MAX_FILE_SIZE = settings.max_file_size  # 50MB
+    MAX_FILE_SIZE = settings.max_file_size
     
     @staticmethod
     def validate_file(filename: str, file_size: int) -> Tuple[bool, Optional[str]]:
-        """
-        Validate file type and size
-        
-        Args:
-            filename: Name of the file
-            file_size: File size in bytes
-            
-        Returns:
-            Tuple[bool, Optional[str]]: (is_valid, error_message)
-        """
-        # Check file extension
         file_ext = filename.split('.')[-1].lower()
         if file_ext not in FileValidator.ALLOWED_EXTENSIONS:
             return False, f"Invalid file type: {file_ext}. Allowed: {', '.join(FileValidator.ALLOWED_EXTENSIONS)}"
         
-        # Check file size
         if file_size > FileValidator.MAX_FILE_SIZE:
             max_mb = FileValidator.MAX_FILE_SIZE / (1024 * 1024)
             file_mb = file_size / (1024 * 1024)
@@ -60,10 +47,7 @@ class FileValidator:
         return True, None
 
 
-# ============ TEXT EXTRACTION ============
-
 class TextExtractor:
-    """Extracts text from different document formats"""
     
     @staticmethod
     def extract_from_pdf(file_path: str) -> Tuple[str, int, List[str]]:
@@ -72,9 +56,13 @@ class TextExtractor:
         try:
             pdf_reader = PdfReader(file_path)
             num_pages = len(pdf_reader.pages)
-            page_texts = [page.extract_text() or "" for page in pdf_reader.pages]
-            full_text_chunks = [f"--- Page {i + 1} ---\n{text}" for i, text in enumerate(page_texts)]
-            full_text = "\n\n".join(full_text_chunks)
+            page_texts = []
+            full_text = ""
+            
+            for page_num, page in enumerate(pdf_reader.pages):
+                page_text = page.extract_text() or ""
+                page_texts.append(page_text)
+                full_text += f"\n\n--- Page {page_num + 1} ---\n{page_text}"
             
             logger.info(f"✅ Extracted {num_pages} pages from PDF")
             return full_text, num_pages, page_texts
@@ -82,18 +70,79 @@ class TextExtractor:
         except Exception as e:
             logger.error(f"❌ Error extracting PDF: {str(e)}")
             raise Exception(f"Failed to extract PDF: {str(e)}")
-    
+
+    @staticmethod
+    def extract_images_from_docx(file_path: str) -> str:
+        extracted_text = ""
+        try:
+            with zipfile.ZipFile(file_path) as z:
+                media_files = sorted([n for n in z.namelist() if n.startswith("word/media/") and n.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".webp"))])
+                if not media_files:
+                    return ""
+                
+                images = []
+                for name in media_files:
+                    try:
+                        img_bytes = z.read(name)
+                        img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                        images.append(img)
+                    except Exception as img_err:
+                        logger.warning(f"Could not load image {name}: {img_err}")
+                
+                if not images:
+                    return ""
+
+                genai.configure(api_key=settings.google_api_key)
+                models_to_try = ["gemini-3.5-flash-lite", settings.gemini_model, "gemini-flash-latest", "gemini-3.6-flash", "gemini-2.5-flash"]
+                
+                prompt = ["Extract all readable text, code, questions, tasks, and contents from these document images in order, exactly as written:"] + images
+                
+                for m_name in models_to_try:
+                    if not m_name:
+                        continue
+                    try:
+                        model = genai.GenerativeModel(m_name)
+                        resp = model.generate_content(prompt)
+                        if resp and resp.text:
+                            extracted_text = resp.text.strip()
+                            logger.info(f"✅ Image OCR succeeded with model {m_name} ({len(extracted_text)} chars)")
+                            break
+                    except Exception as m_err:
+                        logger.warning(f"Model {m_name} failed for document image batch: {m_err}")
+        except Exception as e:
+            logger.warning(f"Failed docx image fallback: {e}")
+        
+        return extracted_text.strip()
+
     @staticmethod
     def extract_from_docx(file_path: str) -> Tuple[str, int, List[str]]:
         logger.info(f"Extracting text from DOCX: {file_path}")
         
         try:
             doc = DocxDocument(file_path)
-            paragraph_texts = [p.text for p in doc.paragraphs if p.text and p.text.strip()]
-            table_lines = [" | ".join([cell.text for cell in row.cells]) for table in doc.tables for row in table.rows]
-            full_text = "\n".join(paragraph_texts + table_lines)
+            full_text = ""
+            paragraph_texts = []
             
-            logger.info(f"✅ Extracted {len(paragraph_texts)} paragraphs from DOCX")
+            for para_num, para in enumerate(doc.paragraphs):
+                if para.text.strip():
+                    paragraph_texts.append(para.text)
+                    full_text += f"\n{para.text}"
+            
+            for table in doc.tables:
+                for row in table.rows:
+                    row_text = " | ".join([cell.text for cell in row.cells if cell.text.strip()])
+                    if row_text.strip():
+                        paragraph_texts.append(row_text)
+                        full_text += f"\n{row_text}"
+            
+            if len(full_text.strip()) < 20:
+                logger.info(f"Plain text in DOCX is short or empty ({len(full_text.strip())} chars), running image OCR fallback...")
+                image_text = TextExtractor.extract_images_from_docx(file_path)
+                if image_text:
+                    full_text += f"\n{image_text}"
+                    paragraph_texts.extend([line for line in image_text.split('\n') if line.strip()])
+            
+            logger.info(f"✅ Extracted {len(paragraph_texts)} text blocks ({len(full_text)} chars) from DOCX")
             return full_text, len(paragraph_texts), paragraph_texts
             
         except Exception as e:
@@ -102,20 +151,33 @@ class TextExtractor:
     
     @staticmethod
     def extract_from_pptx(file_path: str) -> Tuple[str, int, List[str]]:
+        """
+        Extract text from PPTX (PowerPoint) file
+        
+        Args:
+            file_path: Path to PPTX file
+            
+        Returns:
+            Tuple[str, int, List[str]]: (full_text, num_slides, slide_texts)
+        """
         logger.info(f"Extracting text from PPTX: {file_path}")
         
         try:
             presentation = Presentation(file_path)
+            full_text = ""
             slide_texts = []
-            full_chunks = []
             
             for slide_num, slide in enumerate(presentation.slides):
-                texts = [shape.text for shape in slide.shapes if hasattr(shape, "text") and shape.text and shape.text.strip()]
-                combined = "\n".join(texts)
-                slide_texts.append(combined)
-                full_chunks.append(f"--- Slide {slide_num + 1} ---\n{combined}")
+                slide_text = ""
+                
+                # Extract text from shapes
+                for shape in slide.shapes:
+                    if hasattr(shape, "text") and shape.text.strip():
+                        slide_text += f"\n{shape.text}"
+                
+                slide_texts.append(slide_text)
+                full_text += f"\n\n--- Slide {slide_num + 1} ---\n{slide_text}"
             
-            full_text = "\n\n".join(full_chunks)
             logger.info(f"✅ Extracted {len(presentation.slides)} slides from PPTX")
             return full_text, len(presentation.slides), slide_texts
             
@@ -184,9 +246,9 @@ class TextChunker:
     def clean_text(text: str) -> str:
         if not text:
             return ""
-        text = re.sub(r'[ \t]+', ' ', text)
-        text = re.sub(r'\n{3,}', '\n\n', text)
-        return text.strip()
+        if len(text) > 500000:
+            return text.replace('\r', ' ').replace('\t', ' ').strip()
+        return re.sub(r'[ \t\r\f\v]+', ' ', text).strip()
     
     @staticmethod
     def chunk_text(
@@ -194,16 +256,25 @@ class TextChunker:
         chunk_size: int = None,
         overlap: int = None
     ) -> List[TextChunk]:
+        total_len = len(text)
         if chunk_size is None:
-            chunk_size = settings.chunk_size
-        if overlap is None:
+            if total_len < 100000:
+                chunk_size = 2000
+                overlap = 200
+            elif total_len < 1000000:
+                chunk_size = 5000
+                overlap = 300
+            else:
+                chunk_size = 10000
+                overlap = 500
+        elif overlap is None:
             overlap = settings.chunk_overlap
         
-        logger.info(f"Chunking text: chunk_size={chunk_size}, overlap={overlap}")
+        logger.info(f"Chunking text: len={total_len}, chunk_size={chunk_size}, overlap={overlap}")
         
         text = TextChunker.clean_text(text)
         
-        if len(text) <= chunk_size:
+        if len(text) < chunk_size:
             chunk = TextChunk(
                 chunk_id=str(uuid.uuid4()),
                 file_id="",
@@ -212,15 +283,12 @@ class TextChunker:
                 page_number=None,
                 section_heading=None
             )
-            logger.info(f"✅ Created 1 chunk (text smaller than chunk_size)")
+            logger.info("✅ Created 1 chunk (text smaller than chunk_size)")
             return [chunk]
         
         chunks = []
         start_idx = 0
         chunk_index = 0
-        step = chunk_size - overlap
-        if step <= 0:
-            step = chunk_size
         
         while start_idx < len(text):
             end_idx = min(start_idx + chunk_size, len(text))
@@ -238,37 +306,25 @@ class TextChunker:
                 chunks.append(chunk)
                 chunk_index += 1
             
-            if end_idx >= len(text):
+            start_idx = end_idx - overlap
+            if start_idx >= end_idx or end_idx >= len(text):
                 break
-                
-            start_idx += step
         
         logger.info(f"✅ Created {len(chunks)} chunks from text")
         return chunks
     
     @staticmethod
     def detect_page_numbers(chunks: List[TextChunk], page_markers: List[str]) -> List[TextChunk]:
-        """
-        Try to detect page numbers in chunks based on page markers
-        
-        Args:
-            chunks: List of chunks
-            page_markers: List of page marker strings (e.g., ["--- Page 1 ---", "--- Page 2 ---"])
-            
-        Returns:
-            List[TextChunk]: Chunks with page numbers set
-        """
         current_page = None
-        
         for chunk in chunks:
-            # Check if chunk text contains a page marker
-            for page_num, marker in enumerate(page_markers, 1):
-                if marker in chunk.text:
-                    current_page = page_num
-            
+            match = re.search(r'Page (\d+)', chunk.text)
+            if match:
+                try:
+                    current_page = int(match.group(1))
+                except ValueError:
+                    pass
             if current_page:
                 chunk.page_number = current_page
-        
         return chunks
 
 
@@ -397,11 +453,12 @@ class FileProcessor:
             full_text, page_count, page_details = self.extractor.extract_text(file_path, file_type)
             total_chars = len(full_text)
             
+            # Step 4: Chunk text
             chunks = self.chunker.chunk_text(full_text)
+            
+            # Set file_id for all chunks
             for chunk in chunks:
                 chunk.file_id = file_id
-                chunk.filename = filename
-
             
             # Try to detect page numbers
             if page_details and file_type in ["pdf", "pptx"]:

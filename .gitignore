@@ -9,12 +9,6 @@ venv/
 ENV/
 .venv
 
-# Node / JS
-node_modules/
-frontend/node_modules/
-dist/
-frontend/dist/
-
 # IDE
 .vscode/
 .idea/
@@ -23,18 +17,19 @@ frontend/dist/
 
 # Environment
 .env
-*.env
-backend/.env
 .env.local
 
 # Project specific
 backend/uploads/*
-!backend/uploads/.gitkeep
 backend/faiss_index/
 backend/logs/
+logs/
+uploads/
+*.log
 *.db
 *.sqlite
 
 # OS
 .DS_Store
 Thumbs.db
+node_modules

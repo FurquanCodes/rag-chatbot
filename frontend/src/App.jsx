@@ -77,6 +77,7 @@ function App() {
       const res = await listDocuments("default");
       if (res && res.data && Array.isArray(res.data.documents)) {
         setDocuments(res.data.documents);
+        setIsConnected(true);
       }
     } catch (err) {
       console.error("Error fetching documents:", err);
@@ -86,9 +87,11 @@ function App() {
   async function verifyHealth() {
     try {
       const res = await checkHealth();
-      setIsConnected(res && res.status === "healthy");
+      if (res && (res.status === "healthy" || res.status === "success")) {
+        setIsConnected(true);
+      }
     } catch (err) {
-      setIsConnected(false);
+      console.error("Health check failed:", err);
     }
   }
 

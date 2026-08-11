@@ -9,6 +9,8 @@ from typing import List, Optional, Tuple
 import time
 import hashlib
 import random
+import concurrent.futures
+import numpy as np
 from datetime import datetime, timedelta
 
 import google.generativeai as genai
@@ -25,16 +27,9 @@ logger = get_logger(__name__)
 # ============ EMBEDDING CONFIG ============
 
 class EmbeddingConfig:
-    """Configuration for embedding generation"""
-    
-    # Google Embeddings model
-    MODEL = "models/text-embedding-004"
-    
-    # Embedding dimension (Google's standard)
-    DIMENSION = 768
-    
-    # Batch size for API calls (max 100 per API limit)
-    BATCH_SIZE = 50
+    MODEL = "models/gemini-embedding-001"
+    DIMENSION = 3072
+    BATCH_SIZE = 100
     
     # Retry config
     MAX_RETRIES = 3
@@ -42,7 +37,7 @@ class EmbeddingConfig:
     
     # Rate limiting
     REQUESTS_PER_MINUTE = 60
-    MIN_REQUEST_INTERVAL = 60 / REQUESTS_PER_MINUTE  # ~1 request per second
+    MIN_REQUEST_INTERVAL = 0.05
 
 
 # ============ EMBEDDING CACHE ============
@@ -141,82 +136,61 @@ class GoogleEmbeddingsAPI:
 
     @staticmethod
     def _generate_fallback_vector(text: str) -> List[float]:
-        """Generate a deterministic vector based on text content"""
-        seed = int(hashlib.md5(text.encode('utf-8')).hexdigest(), 16) % (2**32)
-        rng = random.Random(seed)
-        vec = [rng.uniform(-0.1, 0.1) for _ in range(EmbeddingConfig.DIMENSION)]
-        norm = sum(x * x for x in vec) ** 0.5
-        return [x / norm for x in vec] if norm > 0 else vec
+        seed = int(hashlib.md5(text.encode('utf-8')).hexdigest()[:8], 16)
+        rng = np.random.RandomState(seed)
+        vec = rng.uniform(-0.1, 0.1, size=EmbeddingConfig.DIMENSION).astype(np.float32)
+        norm = np.linalg.norm(vec)
+        if norm > 0:
+            vec /= norm
+        return vec.tolist()
     
-    def embed_text(self, text: str) -> Optional[List[float]]:
-        """
-        Generate embedding for a single text using Google Embeddings API
-        
-        Args:
-            text: Text to embed
-            
-        Returns:
-            List[float]: 768-dimensional embedding vector or None on failure
-        """
+    def embed_text(self, text: str, task_type: str = "retrieval_document") -> Optional[List[float]]:
         if not text or not text.strip():
-            logger.warning("⚠️ Empty text provided for embedding")
+            logger.warning("Empty text provided for embedding")
             return None
         
         if self.configured:
             try:
-                # Rate limiting
                 self._rate_limit()
-                
-                # Call Google Embeddings API
                 logger.debug(f"Calling Google Embeddings API for text: {text[:50]}...")
-                
                 response = genai.embed_content(
                     model=self.config.MODEL,
                     content=text,
-                    task_type="retrieval_document"
+                    task_type=task_type,
+                    request_options={"timeout": 4.0}
                 )
-                
                 embedding = response.get('embedding')
-                
                 if embedding and len(embedding) > 0:
-                    logger.debug(f"✅ Generated embedding with {len(embedding)} dimensions")
+                    logger.debug(f"Generated embedding with {len(embedding)} dimensions")
                     return embedding
-                
             except Exception as e:
-                logger.warning(f"⚠️ Google Embeddings API call failed ({str(e)}), generating fallback vector")
+                logger.warning(f"Google Embeddings API call failed ({str(e)}), generating fallback vector")
         
         return self._generate_fallback_vector(text)
     
     def embed_batch(self, texts: List[str]) -> List[Optional[List[float]]]:
-        """
-        Generate embeddings for multiple texts
+        if not texts:
+            return []
         
-        Args:
-            texts: List of texts to embed
-            
-        Returns:
-            List[List[float]]: List of embedding vectors (None for failed items)
-        """
         if not self.configured:
-            logger.error("❌ Google API not configured")
-            return [None] * len(texts)
+            return [self._generate_fallback_vector(t) for t in texts]
         
-        embeddings = []
+        try:
+            self._rate_limit()
+            logger.debug(f"Calling Google Embeddings API batch for {len(texts)} texts...")
+            response = genai.embed_content(
+                model=self.config.MODEL,
+                content=texts,
+                task_type="retrieval_document",
+                request_options={"timeout": 4.0}
+            )
+            embeddings = response.get('embedding', [])
+            if isinstance(embeddings, list) and len(embeddings) == len(texts):
+                return embeddings
+        except Exception as e:
+            logger.warning(f"Batch embedding API call failed ({str(e)}), generating fallback vectors")
         
-        logger.info(f"Generating embeddings for {len(texts)} texts")
-        
-        for i, text in enumerate(texts):
-            embedding = self.embed_text(text)
-            embeddings.append(embedding)
-            
-            # Progress logging every 10 items
-            if (i + 1) % 10 == 0:
-                logger.info(f"Progress: {i + 1}/{len(texts)} embeddings generated")
-        
-        successful = sum(1 for e in embeddings if e is not None)
-        logger.info(f"✅ Generated {successful}/{len(texts)} embeddings successfully")
-        
-        return embeddings
+        return [self._generate_fallback_vector(t) for t in texts]
     
     def check_quota(self) -> Tuple[bool, Optional[str]]:
         """
@@ -349,8 +323,7 @@ class EmbeddingService:
                 logger.info("✅ Question embedding found in cache")
                 return cached_embedding
         
-        # Generate embedding
-        embedding = self.api.embed_text(question)
+        embedding = self.api.embed_text(question, task_type="retrieval_query")
         
         # Cache it
         if embedding and self.cache:
@@ -368,37 +341,33 @@ class EmbeddingService:
         chunks: List[TextChunk],
         batch_size: int = None
     ) -> List[Tuple[TextChunk, Optional[List[float]]]]:
-        """
-        Generate embeddings in batches (optimized for API rate limiting)
-        
-        Args:
-            chunks: List of TextChunk objects
-            batch_size: Batch size (default: from config)
-            
-        Returns:
-            List[Tuple[TextChunk, List[float]]]: Chunks with embeddings
-        """
+        if not chunks:
+            return []
         if batch_size is None:
             batch_size = EmbeddingConfig.BATCH_SIZE
         
-        logger.info(f"🔄 Batch embedding {len(chunks)} chunks (batch_size={batch_size})")
+        batches = [chunks[i:i + batch_size] for i in range(0, len(chunks), batch_size)]
+        
+        def process_batch(batch):
+            batch_texts = [c.text for c in batch]
+            embeddings = self.api.embed_batch(batch_texts)
+            results = []
+            for chunk, emb in zip(batch, embeddings):
+                if emb:
+                    chunk.embedding = emb
+                    results.append((chunk, emb))
+                else:
+                    results.append((chunk, None))
+            return results
         
         all_results = []
+        max_workers = min(5, max(1, len(batches)))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            batch_results = executor.map(process_batch, batches)
+            for res in batch_results:
+                all_results.extend(res)
         
-        # Process in batches
-        for batch_num in range(0, len(chunks), batch_size):
-            batch = chunks[batch_num:batch_num + batch_size]
-            batch_num_display = (batch_num // batch_size) + 1
-            total_batches = (len(chunks) + batch_size - 1) // batch_size
-            
-            logger.info(f"Processing batch {batch_num_display}/{total_batches}")
-            
-            # Embed batch
-            batch_results = self.embed_chunks(batch)
-            all_results.extend(batch_results)
-        
-        logger.info(f"✅ Batch embedding complete: {len(all_results)} chunks processed")
-        
+        logger.info(f"Batch embedding complete: {len(all_results)} chunks processed")
         return all_results
     
     def check_health(self) -> dict:

@@ -55,11 +55,19 @@ function ChatWindow({
       ]);
     } catch (err) {
       console.error(err);
+      const errorMsg =
+        err.response?.data?.detail?.message ||
+        err.response?.data?.message ||
+        (typeof err.response?.data?.detail === "string"
+          ? err.response.data.detail
+          : null) ||
+        err.message ||
+        "Failed to process request. Please try again.";
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          text: "Something went wrong. Please check your backend connection and try again.",
+          text: errorMsg,
         },
       ]);
     } finally {

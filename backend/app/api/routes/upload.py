@@ -26,7 +26,7 @@ router = APIRouter(prefix="/api/v1", tags=["Documents"])
 # ============ UPLOAD ENDPOINT ============
 
 @router.post("/upload", response_model=UploadResponse, status_code=status.HTTP_201_CREATED)
-async def upload_documents(
+def upload_documents(
     files: List[UploadFile] = File(..., description="Documents to upload (PDF, DOCX, PPTX, TXT)"),
     collection_id: str = Form(default="default", description="User/collection ID")
 ) -> UploadResponse:
@@ -101,7 +101,7 @@ async def upload_documents(
             file_type = file.filename.split('.')[-1].lower()
             
             # Read file content
-            file_content = await file.read()
+            file_content = file.file.read()
             
             # ============ STEP 1: PROCESS FILE ============
             logger.info(f"Step 1: Processing file...")

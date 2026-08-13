@@ -59,7 +59,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         rag_service = get_rag_service()
         
         if request.search_type in ["documents_only", "hybrid"]:
-            logger.info(f"Step 1: Searching documents... (file_id={request.file_id})")
+            logger.info(f"Step 1: Searching documents (first preference)... (file_id={request.file_id})")
             
             retrieved_chunks, error = rag_service.retrieve_context(
                 question=request.question,
@@ -76,15 +76,11 @@ async def chat(request: ChatRequest) -> ChatResponse:
                     file_id=request.file_id
                 )
                 if response and not err:
-                    answer_lower = response.get("answer", "").lower()
-                    missing_phrases = ["i don't have information", "not mentioned in", "no information in the documents", "does not contain", "unable to get information", "unable to find information"]
-                    is_missing = any(p in answer_lower for p in missing_phrases)
-                    if not is_missing or request.search_type == "documents_only":
-                        logger.info("✅ Answer found in documents")
-                        return ChatResponse(
-                            status="success",
-                            data=response
-                        )
+                    logger.info("✅ Primary choice satisfied: Returning answer from documents")
+                    return ChatResponse(
+                        status="success",
+                        data=response
+                    )
             
             if request.search_type == "documents_only":
                 logger.info("Document-only mode: returning unable to get information response")
@@ -103,7 +99,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
                     }
                 )
             
-            logger.info("Hybrid mode: falling back to Wikipedia...")
+            logger.info("Hybrid mode: no document chunks found, falling back to Wikipedia as second preference...")
         
         if request.search_type in ["wikipedia_only", "hybrid"]:
             logger.info("Step 2: Searching Wikipedia as fallback...")
@@ -138,7 +134,8 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 answer = "Unable to get information about it."
             
             sources = []
-            for result in wiki_results:
+            if wiki_results:
+                result = wiki_results[0]
                 raw_text = result.get('summary') or result.get('snippet') or ''
                 clean_snippet = BeautifulSoup(raw_text, "html.parser").get_text()
                 if len(clean_snippet) > 200:

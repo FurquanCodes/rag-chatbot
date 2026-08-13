@@ -9,6 +9,7 @@ import os
 import pickle
 from typing import List, Tuple, Optional, Dict
 from pathlib import Path
+import re
 import numpy as np
 
 # FAISS
@@ -134,9 +135,15 @@ class FAISSVectorStore:
                 metadata = {
                     "chunk_id": chunk.chunk_id,
                     "file_id": chunk.file_id,
+                    "file_number": getattr(chunk, "file_number", 1),
+                    "filename": getattr(chunk, "filename", None),
+                    "file_type": getattr(chunk, "file_type", None),
                     "chunk_index": chunk.chunk_index,
                     "text": chunk.text,
+                    "original_text": getattr(chunk, "original_text", chunk.text),
                     "page_number": chunk.page_number,
+                    "line_start": getattr(chunk, "line_start", None),
+                    "line_end": getattr(chunk, "line_end", None),
                     "section_heading": chunk.section_heading,
                     "created_at": chunk.created_at.isoformat() if chunk.created_at else None
                 }
@@ -155,7 +162,10 @@ class FAISSVectorStore:
         query_vector: List[float],
         k: int = 5,
         threshold: float = 0.0,
-        file_id: Optional[str] = None
+        file_id: Optional[str] = None,
+        target_file_number: Optional[int] = None,
+        target_filename: Optional[str] = None,
+        raw_query: Optional[str] = None
     ) -> Tuple[List[Dict], Optional[str]]:
         if self.vector_count == 0:
             error = "No vectors in index"
@@ -170,15 +180,18 @@ class FAISSVectorStore:
         try:
             target_file_id = file_id if file_id and str(file_id).strip() else None
 
-            logger.info(f"Searching for top-{k} similar vectors (target_file_id={target_file_id})")
+            logger.info(f"Searching for top-{k} similar vectors (file_id={target_file_id}, file_num={target_file_number}, filename={target_filename})")
             query = np.array([query_vector], dtype=np.float32)
             faiss.normalize_L2(query)
             
             search_k = self.vector_count
             distances, indices = self.index.search(query, search_k)
             
-            results = []
-            rank = 1
+            raw_q_words = []
+            if raw_query:
+                raw_q_words = [w.lower() for w in re.findall(r'[A-Za-z0-9_]+', raw_query) if len(w) >= 3]
+
+            candidates = []
             
             for distance, idx in zip(distances[0], indices[0]):
                 if idx < 0 or idx >= len(self.metadata):
@@ -188,26 +201,57 @@ class FAISSVectorStore:
                 
                 if target_file_id and metadata.get("file_id") != target_file_id:
                     continue
+                if target_file_number and metadata.get("file_number") != target_file_number:
+                    continue
+                if target_filename and metadata.get("filename") and target_filename.lower() not in metadata.get("filename").lower():
+                    continue
                 
                 similarity_score = max(0.0, 1.0 - (distance / 2.0))
+                
+                chunk_text_lower = (metadata.get("text") or "").lower()
+                for qw in raw_q_words:
+                    if qw in chunk_text_lower:
+                        similarity_score += 0.3
+                
                 if similarity_score < threshold:
                     continue
                 
                 result = {
-                    "rank": rank,
+                    "rank": 0,
                     "chunk_id": metadata["chunk_id"],
                     "file_id": metadata["file_id"],
+                    "file_number": metadata.get("file_number", 1),
+                    "filename": metadata.get("filename") or self.get_filename(metadata["file_id"]),
+                    "file_type": metadata.get("file_type"),
                     "chunk_index": metadata["chunk_index"],
                     "text": metadata["text"],
-                    "page_number": metadata["page_number"],
-                    "section_heading": metadata["section_heading"],
+                    "original_text": metadata.get("original_text", metadata["text"]),
+                    "page_number": metadata.get("page_number"),
+                    "line_start": metadata.get("line_start"),
+                    "line_end": metadata.get("line_end"),
+                    "section_heading": metadata.get("section_heading"),
                     "similarity_score": float(similarity_score)
                 }
-                results.append(result)
-                rank += 1
-                
-                if len(results) >= k:
-                    break
+                candidates.append(result)
+            
+            if not candidates and target_file_id:
+                logger.info("No candidates matched specified file_id, retrying across all documents...")
+                return self.search(
+                    query_vector=query_vector,
+                    k=k,
+                    threshold=threshold,
+                    file_id=None,
+                    target_file_number=target_file_number,
+                    target_filename=target_filename,
+                    raw_query=raw_query
+                )
+
+            candidates.sort(key=lambda x: x["similarity_score"], reverse=True)
+            
+            results = []
+            for rank, item in enumerate(candidates[:k], 1):
+                item["rank"] = rank
+                results.append(item)
             
             logger.info(f"✅ Found {len(results)} results (file_id={file_id}, threshold={threshold})")
             return results, None
@@ -216,6 +260,12 @@ class FAISSVectorStore:
             error = f"Search failed: {str(e)}"
             logger.error(f"❌ {error}")
             return [], error
+
+    def get_filename(self, file_id: str) -> Optional[str]:
+        for meta in self.metadata:
+            if meta.get("file_id") == file_id and meta.get("filename"):
+                return meta["filename"]
+        return None
     
     def delete_by_file_id(self, file_id: str) -> Tuple[bool, Optional[str]]:
         """

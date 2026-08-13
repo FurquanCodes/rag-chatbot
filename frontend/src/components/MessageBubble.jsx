@@ -1,3 +1,5 @@
+import ReactMarkdown from "react-markdown";
+
 function MessageBubble({ role, text, sources }) {
   const isUser = role === "user";
 
@@ -10,50 +12,71 @@ function MessageBubble({ role, text, sources }) {
             : "bg-[#131B2E] border border-[#22304E] text-slate-200 rounded-bl-none"
         }`}
       >
-        <div className="whitespace-pre-wrap">{text}</div>
+        {isUser ? (
+          <div className="whitespace-pre-wrap">{text}</div>
+        ) : (
+          <div className="prose prose-invert max-w-none text-sm leading-relaxed text-slate-200">
+            <ReactMarkdown>{text}</ReactMarkdown>
+          </div>
+        )}
 
         {!isUser && sources && sources.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-[#22304E]/80 space-y-1.5">
+          <div className="mt-4 pt-3 border-t border-[#22304E]/80 space-y-2">
             <p className="text-[11px] font-bold text-slate-400 tracking-wider uppercase">
               Sources:
             </p>
-            <div className="flex flex-wrap gap-1.5">
-              {sources.map((src, idx) => (
-                <div
-                  key={idx}
-                  className="bg-[#1C2843] border border-[#2B3C63] rounded-md px-2.5 py-1 text-[11px] text-slate-300 flex items-center gap-1.5"
-                >
-                  {src.source_type === "wikipedia" ? (
-                    <>
-                      <span>🌐</span>
-                      {src.wikipedia_url ? (
-                        <a
-                          href={src.wikipedia_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="hover:underline text-blue-400 font-medium"
-                        >
-                          {src.source_name}
-                        </a>
-                      ) : (
-                        <span>{src.source_name}</span>
-                      )}
-                    </>
-                  ) : (
-                    <>
+            <div className="space-y-2">
+              {sources.map((src, idx) => {
+                const isPptx =
+                  src.file_type === "pptx" ||
+                  (src.source_name &&
+                    src.source_name.toLowerCase().endsWith(".pptx"));
+                const unitLabel = isPptx ? "Slide" : "Page";
+                
+                const sName = src.source_name || "";
+                const fileNumPrefix = src.file_number && !sName.toLowerCase().startsWith("file ")
+                  ? `File ${src.file_number} — `
+                  : "";
+
+                const lineDisplay = src.line_start
+                  ? src.line_start === src.line_end || !src.line_end
+                    ? `Line: ${src.line_start}`
+                    : `Lines: ${src.line_start}–${src.line_end}`
+                  : null;
+
+                return (
+                  <div
+                    key={idx}
+                    className="bg-[#1C2843] border border-[#2B3C63] rounded-lg p-3 text-xs text-slate-200 space-y-1 shadow-sm"
+                  >
+                    <div className="font-semibold text-blue-400 flex items-center gap-1.5">
                       <span>📄</span>
-                      <span className="font-medium text-slate-200">
-                        {src.source_name}
+                      <span>
+                        {fileNumPrefix}
+                        {sName}
                       </span>
-                      {src.page_number && (
-                        <span className="text-slate-400">
-                          (Page {src.page_number})
-                        </span>
-                      )}
-                    </>
-                  )}
-                </div>
-              ))}
+                    </div>
+
+                    {src.page_number && (
+                      <div className="text-slate-300 font-medium">
+                        {unitLabel}: {src.page_number}
+                      </div>
+                    )}
+
+                    {lineDisplay && (
+                      <div className="text-slate-300 font-medium">
+                        {lineDisplay}
+                      </div>
+                    )}
+
+                    {src.original_text && (
+                      <div className="mt-2 pt-2 border-t border-[#2B3C63]/60 text-slate-300 italic font-mono text-[11px] leading-snug">
+                        Exact Quote: "{src.original_text}"
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -62,4 +85,4 @@ function MessageBubble({ role, text, sources }) {
   );
 }
 
-export default MessageBubble;
+export default MessageBubble;

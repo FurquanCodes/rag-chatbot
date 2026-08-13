@@ -6,7 +6,10 @@ Handles file upload and document processing
 import logging
 from typing import List
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, status
+from fastapi.responses import FileResponse
+from pathlib import Path
 import time
+from app.utils.config import settings, UPLOAD_DIR
 
 # Local imports
 from app.utils.config import settings
@@ -103,13 +106,15 @@ def upload_documents(
             # Read file content
             file_content = file.file.read()
             
-            # ============ STEP 1: PROCESS FILE ============
-            logger.info(f"Step 1: Processing file...")
+            existing_unique_files = set(m.get("file_id") for m in faiss_store.metadata)
+            assigned_file_number = len(existing_unique_files) + file_idx
+
             chunks, metadata = file_processor.process_file(
                 file_content=file_content,
                 filename=file.filename,
                 file_type=file_type,
-                collection_id=collection_id
+                collection_id=collection_id,
+                file_number=assigned_file_number
             )
             
             if not chunks:
@@ -400,3 +405,27 @@ async def clear_all_documents(collection_id: str = "default"):
                 "error_code": "CLEAR_FAILED"
             }
         )
+
+
+@router.get("/documents/{file_id}/file", tags=["Documents"])
+async def get_document_file(file_id: str, collection_id: str = "default"):
+    faiss_store = get_faiss_store()
+    filename = None
+    for meta in faiss_store.metadata:
+        if meta.get("file_id") == file_id:
+            filename = meta.get("filename")
+            break
+
+    collection_dir = UPLOAD_DIR / collection_id
+    for file_path in collection_dir.glob(f"{file_id}.*"):
+        if file_path.exists():
+            return FileResponse(
+                path=str(file_path),
+                filename=filename or file_path.name,
+                media_type="application/octet-stream"
+            )
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Requested document file not found"
+    )

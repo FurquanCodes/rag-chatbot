@@ -314,13 +314,19 @@ class TextChunker:
         return chunks
     
     @staticmethod
-    def detect_page_numbers(chunks: List[TextChunk], page_markers: List[str]) -> List[TextChunk]:
+    def detect_page_numbers(chunks: List[TextChunk], page_markers: List[str] = None) -> List[TextChunk]:
         current_page = None
         for chunk in chunks:
-            match = re.search(r'Page (\d+)', chunk.text)
-            if match:
+            match_slide = re.search(r'(?:--- Slide |Slide )(\d+)', chunk.text, re.IGNORECASE)
+            match_page = re.search(r'(?:--- Page |Page )(\d+)', chunk.text, re.IGNORECASE)
+            if match_slide:
                 try:
-                    current_page = int(match.group(1))
+                    current_page = int(match_slide.group(1))
+                except ValueError:
+                    pass
+            elif match_page:
+                try:
+                    current_page = int(match_page.group(1))
                 except ValueError:
                     pass
             if current_page:
@@ -330,39 +336,68 @@ class TextChunker:
 
 # ============ FILE STORAGE ============
 
+    @staticmethod
+    def chunk_lines(
+        lines_with_numbers: List[Tuple[int, str]],
+        max_chars: int = 1200,
+        max_lines: int = 15
+    ) -> List[Dict]:
+        if not lines_with_numbers:
+            return []
+            
+        chunks = []
+        current_chunk_lines = []
+        current_len = 0
+        
+        for line_num, line_str in lines_with_numbers:
+            line_clean = line_str.strip()
+            if not line_clean:
+                continue
+                
+            if current_chunk_lines and (current_len + len(line_clean) > max_chars or len(current_chunk_lines) >= max_lines):
+                c_start = current_chunk_lines[0][0]
+                c_end = current_chunk_lines[-1][0]
+                c_text = "\n".join([item[1] for item in current_chunk_lines])
+                chunks.append({
+                    "line_start": c_start,
+                    "line_end": c_end,
+                    "text": c_text
+                })
+                current_chunk_lines = []
+                current_len = 0
+            
+            current_chunk_lines.append((line_num, line_clean))
+            current_len += len(line_clean)
+            
+        if current_chunk_lines:
+            c_start = current_chunk_lines[0][0]
+            c_end = current_chunk_lines[-1][0]
+            c_text = "\n".join([item[1] for item in current_chunk_lines])
+            chunks.append({
+                "line_start": c_start,
+                "line_end": c_end,
+                "text": c_text
+            })
+            
+        return chunks
+
+
 class FileStorage:
-    """Manages file storage on disk"""
-    
     @staticmethod
     def save_uploaded_file(
         file_content: bytes,
         filename: str,
         collection_id: str
     ) -> Tuple[str, str]:
-        """
-        Save uploaded file to disk
-        
-        Args:
-            file_content: Binary file content
-            filename: Original filename
-            collection_id: User/collection ID
-            
-        Returns:
-            Tuple[str, str]: (file_path, file_id)
-        """
-        # Create directory for collection if it doesn't exist
         collection_dir = UPLOAD_DIR / collection_id
         collection_dir.mkdir(parents=True, exist_ok=True)
         
-        # Generate unique file ID
         file_id = str(uuid.uuid4())
         file_ext = filename.split('.')[-1].lower()
         
-        # Create unique filename
         unique_filename = f"{file_id}.{file_ext}"
         file_path = collection_dir / unique_filename
         
-        # Save file
         with open(file_path, 'wb') as f:
             f.write(file_content)
         
@@ -371,15 +406,6 @@ class FileStorage:
     
     @staticmethod
     def delete_file(file_path: str) -> bool:
-        """
-        Delete file from disk
-        
-        Args:
-            file_path: Path to file
-            
-        Returns:
-            bool: Success status
-        """
         try:
             path = Path(file_path)
             if path.exists():
@@ -394,11 +420,7 @@ class FileStorage:
             return False
 
 
-# ============ MAIN FILE PROCESSOR ============
-
 class FileProcessor:
-    """Main orchestrator for file processing"""
-    
     def __init__(self):
         self.validator = FileValidator()
         self.extractor = TextExtractor()
@@ -410,62 +432,111 @@ class FileProcessor:
         file_content: bytes,
         filename: str,
         file_type: str,
-        collection_id: str = "default"
+        collection_id: str = "default",
+        file_number: int = 1
     ) -> Tuple[List[TextChunk], StoredFileMetadata]:
-        """
-        Complete file processing pipeline
+        logger.info(f"Processing file #{file_number}: {filename} ({file_type})")
         
-        Pipeline:
-        1. Validate file
-        2. Save to disk
-        3. Extract text
-        4. Chunk text
-        5. Return chunks + metadata
-        
-        Args:
-            file_content: Binary file content
-            filename: Original filename
-            file_type: File type (pdf, docx, pptx, txt)
-            collection_id: User/collection ID
-            
-        Returns:
-            Tuple[List[TextChunk], StoredFileMetadata]: (chunks, metadata)
-            
-        Raises:
-            ValueError: If file validation fails
-            Exception: If processing fails
-        """
-        logger.info(f"Processing file: {filename} ({file_type})")
-        
-        # Step 1: Validate
         is_valid, error_msg = self.validator.validate_file(filename, len(file_content))
         if not is_valid:
             logger.error(f"❌ File validation failed: {error_msg}")
             raise ValueError(error_msg)
         
-        # Step 2: Save to disk
         file_path, file_id = self.storage.save_uploaded_file(
             file_content, filename, collection_id
         )
         
         try:
-            # Step 3: Extract text
             full_text, page_count, page_details = self.extractor.extract_text(file_path, file_type)
             total_chars = len(full_text)
             
-            # Step 4: Chunk text
-            chunks = self.chunker.chunk_text(full_text)
+            chunks = []
+            c_idx = 0
+            global_line_counter = 1
             
-            # Set file_id for all chunks
-            for chunk in chunks:
-                chunk.file_id = file_id
+            if file_type == "pptx" and page_details:
+                for slide_idx, s_text in enumerate(page_details, 1):
+                    if not s_text or not s_text.strip():
+                        continue
+                    s_lines = [line.strip() for line in s_text.split('\n') if line.strip()]
+                    lines_with_num = []
+                    for line_str in s_lines:
+                        lines_with_num.append((global_line_counter, line_str))
+                        global_line_counter += 1
+                        
+                    s_chunk_dicts = self.chunker.chunk_lines(lines_with_num)
+                    for c_dict in s_chunk_dicts:
+                        chunk = TextChunk(
+                            chunk_id=str(uuid.uuid4()),
+                            file_id=file_id,
+                            chunk_index=c_idx,
+                            text=c_dict['text'],
+                            original_text=c_dict['text'],
+                            file_number=file_number,
+                            filename=filename,
+                            file_type=file_type,
+                            page_number=slide_idx,
+                            line_start=c_dict['line_start'],
+                            line_end=c_dict['line_end'],
+                            section_heading=None
+                        )
+                        c_idx += 1
+                        chunks.append(chunk)
+                        
+            elif file_type == "pdf" and page_details:
+                for page_idx, p_text in enumerate(page_details, 1):
+                    if not p_text or not p_text.strip():
+                        continue
+                    p_lines = [line.strip() for line in p_text.split('\n') if line.strip()]
+                    lines_with_num = []
+                    for line_str in p_lines:
+                        lines_with_num.append((global_line_counter, line_str))
+                        global_line_counter += 1
+                        
+                    p_chunk_dicts = self.chunker.chunk_lines(lines_with_num)
+                    for c_dict in p_chunk_dicts:
+                        chunk = TextChunk(
+                            chunk_id=str(uuid.uuid4()),
+                            file_id=file_id,
+                            chunk_index=c_idx,
+                            text=c_dict['text'],
+                            original_text=c_dict['text'],
+                            file_number=file_number,
+                            filename=filename,
+                            file_type=file_type,
+                            page_number=page_idx,
+                            line_start=c_dict['line_start'],
+                            line_end=c_dict['line_end'],
+                            section_heading=None
+                        )
+                        c_idx += 1
+                        chunks.append(chunk)
+            else:
+                raw_lines = [line.strip() for line in full_text.split('\n') if line.strip()]
+                lines_with_num = []
+                for line_str in raw_lines:
+                    lines_with_num.append((global_line_counter, line_str))
+                    global_line_counter += 1
+                    
+                chunk_dicts = self.chunker.chunk_lines(lines_with_num)
+                for c_dict in chunk_dicts:
+                    chunk = TextChunk(
+                        chunk_id=str(uuid.uuid4()),
+                        file_id=file_id,
+                        chunk_index=c_idx,
+                        text=c_dict['text'],
+                        original_text=c_dict['text'],
+                        file_number=file_number,
+                        filename=filename,
+                        file_type=file_type,
+                        page_number=None,
+                        line_start=c_dict['line_start'],
+                        line_end=c_dict['line_end'],
+                        section_heading=None
+                    )
+                    c_idx += 1
+                    chunks.append(chunk)
             
-            # Try to detect page numbers
-            if page_details and file_type in ["pdf", "pptx"]:
-                page_markers = [f"--- Page {i + 1} ---" for i in range(len(page_details))]
-                chunks = self.chunker.detect_page_numbers(chunks, page_markers)
-            
-            # Step 5: Create metadata
             metadata = StoredFileMetadata(
                 file_id=file_id,
                 collection_id=collection_id,
@@ -482,11 +553,10 @@ class FileProcessor:
                 status="processed"
             )
             
-            logger.info(f"✅ File processing complete: {len(chunks)} chunks created")
+            logger.info(f"✅ File processing complete: {len(chunks)} line-bounded chunks created for File #{file_number}")
             return chunks, metadata
             
         except Exception as e:
-            # Clean up on failure
             self.storage.delete_file(file_path)
             logger.error(f"❌ File processing failed: {str(e)}")
             raise Exception(f"Failed to process file: {str(e)}")

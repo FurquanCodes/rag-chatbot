@@ -7,6 +7,7 @@ RAG = Retrieval Augmented Generation
 import logging
 from typing import List, Optional, Tuple, Dict
 import time
+import re
 
 # Google Generative AI
 import google.generativeai as genai
@@ -71,12 +72,32 @@ class RAGService:
                 logger.error(f"❌ {error}")
                 return [], error
             
-            logger.debug(f"Step 2: Searching FAISS (top_k={top_k}, threshold={relevance_threshold}, file_id={file_id})...")
+            target_fnum = None
+            target_fname = None
+            
+            import re
+            m_fnum = re.search(r'File\s*(\d+)', question, re.IGNORECASE)
+            if m_fnum:
+                try:
+                    target_fnum = int(m_fnum.group(1))
+                except ValueError:
+                    pass
+                    
+            for meta in self.faiss_store.metadata:
+                fn = meta.get("filename")
+                if fn and len(fn) > 3 and fn.lower() in question.lower():
+                    target_fname = fn
+                    break
+            
+            logger.debug(f"Step 2: Searching FAISS (top_k={top_k}, file_num={target_fnum}, filename={target_fname})...")
             retrieved_chunks, error = self.faiss_store.search(
                 query_vector=question_embedding,
                 k=top_k,
                 threshold=relevance_threshold,
-                file_id=file_id
+                file_id=file_id,
+                target_file_number=target_fnum,
+                target_filename=target_fname,
+                raw_query=question
             )
             
             if not retrieved_chunks and self.faiss_store.vector_count > 0:
@@ -85,7 +106,10 @@ class RAGService:
                     query_vector=question_embedding,
                     k=top_k,
                     threshold=0.0,
-                    file_id=file_id
+                    file_id=file_id,
+                    target_file_number=target_fnum,
+                    target_filename=target_fname,
+                    raw_query=question
                 )
             
             if error:
@@ -121,33 +145,37 @@ class RAGService:
         system_instruction = """You are a helpful AI assistant specialized in answering user questions using provided document context.
 
 IMPORTANT INSTRUCTIONS:
-1. Answer the user's question accurately using the information in the provided document context.
-2. If the user asks general questions like "What is written in this document", "Summarize the document", or "Explain me python", synthesize and explain the topics, contents, and exercises present in the provided document context.
-3. If the user asks about a specific entity or topic, answer directly using the provided context.
-4. If the provided document context does NOT contain information about the asked topic, reply EXACTLY with: "I don't have information about this topic in the uploaded documents."
-5. Be informative, well-structured, and accurate.
+1. Answer the user's question clearly, thoroughly, and comprehensively using the provided document context. Provide complete explanations, definitions, code examples, and concepts found in the documents.
+2. Structure your response logically with clear paragraphs and bullet points if appropriate.
+3. Synthesize and explain all details present in the context blocks below to answer the question as completely as possible.
+4. DO NOT include any file download links or URLs.
+5. Base your answer strictly on the facts and information in the provided document context.
 
 CONTEXT FROM DOCUMENTS:
 ═══════════════════════════════════════════════════════════════════
 """
         
-        # Add context chunks
         context_text = ""
         for chunk in context_chunks:
-            chunk_marker = f"\n[{chunk['rank']}. {chunk['file_id'][:8]}"
+            f_num = chunk.get('file_number', 1)
+            raw_fname = chunk.get('filename') or self.faiss_store.get_filename(chunk['file_id'])
+            if not raw_fname or (len(raw_fname) == 36 and raw_fname.count('-') == 4):
+                doc_label = f"Document {f_num}"
+            else:
+                doc_label = raw_fname
+                
+            p_num = chunk.get('page_number', 1)
+            l_start = chunk.get('line_start', 1)
+            l_end = chunk.get('line_end', 1)
+            f_type = (chunk.get('file_type') or '').lower()
+            unit = "Slide" if f_type == "pptx" else "Page"
+            orig_text = chunk.get('original_text') or chunk['text']
             
-            if chunk.get('page_number'):
-                chunk_marker += f" - Page {chunk['page_number']}"
-            
-            if chunk.get('section_heading'):
-                chunk_marker += f" - {chunk['section_heading']}"
-            
-            chunk_marker += "]\n"
-            context_text += chunk_marker + chunk['text'] + "\n\n"
+            chunk_marker = f"\n[BLOCK: File {f_num} — {doc_label} | {unit}: {p_num} | Lines: {l_start}–{l_end}]\n"
+            context_text += chunk_marker + orig_text + "\n\n"
         
         system_instruction += context_text
         
-        # Add question
         system_instruction += """═══════════════════════════════════════════════════════════════════
 
 QUESTION:
@@ -155,7 +183,7 @@ QUESTION:
 """
         system_instruction += question
         system_instruction += "\n─────────────────────────────────────────────────────────────────────\n"
-        system_instruction += "\nPROVIDE YOUR ANSWER BELOW:\n"
+        system_instruction += "\nPROVIDE YOUR COMPREHENSIVE ANSWER BELOW:\n"
         
         logger.debug(f"Prompt built: {len(system_instruction)} characters")
         
@@ -206,37 +234,72 @@ QUESTION:
         search_time_ms: float,
         fallback_used: bool = False
     ) -> Dict:
-        """
-        Format response with answer and source attribution
-        
-        Args:
-            question: Original question
-            answer: Generated answer
-            retrieved_chunks: Retrieved context chunks
-            search_time_ms: Time taken for search
-            fallback_used: Whether Wikipedia fallback was used
-            
-        Returns:
-            dict: Formatted response
-        """
-        
         logger.debug("Formatting response...")
         
-        # Build sources list
         sources = []
-        for chunk in retrieved_chunks:
+        seen_keys = set()
+        
+        stopwords = {'what', 'who', 'where', 'when', 'why', 'how', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'the', 'a', 'an', 'in', 'on', 'of', 'for', 'to', 'and', 'or', 'it', 'this', 'that', 'me', 'my', 'give', 'tell', 'explain', 'show', 'written', 'about', 'document'}
+        q_words = [w.lower() for w in re.findall(r'\w+', question) if w.lower() not in stopwords]
+        
+        for i, chunk in enumerate(retrieved_chunks):
+            f_num = chunk.get('file_number', 1)
+            raw_sname = chunk.get('filename') or self.faiss_store.get_filename(chunk['file_id'])
+            if not raw_sname or (len(raw_sname) == 36 and raw_sname.count('-') == 4):
+                s_name = f"Document {f_num}"
+            else:
+                s_name = raw_sname
+                
+            p_num = chunk.get('page_number')
+            l_start = chunk.get('line_start')
+            l_end = chunk.get('line_end')
+            orig_text = chunk.get('original_text') or chunk['text']
+            orig_text_lower = orig_text.lower()
+            
+            has_q_match = any(qw in orig_text_lower for qw in q_words) if q_words else True
+            if i > 0 and q_words and not has_q_match:
+                continue
+            
+            best_snippet = ""
+            lines = [ln.strip() for ln in orig_text.split('\n') if ln.strip()]
+            for ln in lines:
+                if any(qw in ln.lower() for qw in q_words):
+                    best_snippet = ln
+                    break
+            if not best_snippet:
+                for ln in lines:
+                    if not re.match(r'^(page\s+\d+|slide\s+\d+|\d+\s*of\s*\d+)$', ln.lower()):
+                        best_snippet = ln
+                        break
+            if not best_snippet:
+                best_snippet = lines[0] if lines else orig_text[:150]
+                
+            if len(best_snippet) > 180:
+                best_snippet = best_snippet[:177] + "..."
+                
+            dedup_key = (f_num, s_name, p_num)
+            if dedup_key in seen_keys:
+                continue
+            seen_keys.add(dedup_key)
+            
             source = {
                 "source_type": "document",
-                "source_name": chunk['file_id'],
-                "page_number": chunk.get('page_number'),
-                "section_heading": chunk.get('section_heading'),
-                "evidence_snippet": chunk['text'][:200] + "..." if len(chunk['text']) > 200 else chunk['text'],
+                "file_number": f_num,
+                "source_name": s_name,
+                "file_type": chunk.get('file_type'),
+                "page_number": p_num,
+                "line_start": l_start,
+                "line_end": l_end,
+                "original_text": best_snippet,
+                "evidence_snippet": best_snippet,
                 "relevance_score": chunk['similarity_score'],
-                "wikipedia_url": None
+                "wikipedia_url": None,
+                "document_url": None
             }
             sources.append(source)
+            if len(sources) >= 3:
+                break
         
-        # Build retrieval details
         retrieval_details = {
             "search_time_ms": search_time_ms,
             "documents_searched": len(self.faiss_store.metadata),
@@ -245,13 +308,11 @@ QUESTION:
             "retrieval_strategy": "wikipedia_search" if fallback_used else "document_search"
         }
         
-        response = {
+        return {
             "answer": answer,
             "sources": sources,
             "retrieval_details": retrieval_details
         }
-        
-        return response
     
     def answer_question(
         self,

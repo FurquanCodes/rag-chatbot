@@ -233,6 +233,26 @@ class EvidenceSource(BaseModel):
         default=None,
         description="Wikipedia URL (for wikipedia sources)"
     )
+    file_number: Optional[int] = Field(
+        default=None,
+        description="1-based file index (File 1, File 2)"
+    )
+    file_type: Optional[str] = Field(
+        default=None,
+        description="File type: pdf, docx, pptx, txt"
+    )
+    line_start: Optional[int] = Field(
+        default=None,
+        description="Start line number"
+    )
+    line_end: Optional[int] = Field(
+        default=None,
+        description="End line number"
+    )
+    original_text: Optional[str] = Field(
+        default=None,
+        description="Verbatim text from source document"
+    )
 
 
 class RetrievalDetails(BaseModel):
@@ -370,7 +390,13 @@ class TextChunk(BaseModel):
     file_id: str = Field(..., description="Parent file ID")
     chunk_index: int = Field(..., description="Position in document (0-indexed)")
     text: str = Field(..., description="Actual text content")
-    page_number: Optional[int] = Field(default=None, description="Page number")
+    file_number: Optional[int] = Field(default=None, description="1-based file index")
+    filename: Optional[str] = Field(default=None, description="Original filename")
+    file_type: Optional[str] = Field(default=None, description="File extension")
+    page_number: Optional[int] = Field(default=None, description="Page or slide number")
+    line_start: Optional[int] = Field(default=None, description="Start line number")
+    line_end: Optional[int] = Field(default=None, description="End line number")
+    original_text: Optional[str] = Field(default=None, description="Verbatim original text")
     section_heading: Optional[str] = Field(default=None, description="Section title")
     embedding: Optional[List[float]] = Field(
         default=None,

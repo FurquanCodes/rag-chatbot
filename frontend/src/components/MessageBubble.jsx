@@ -27,6 +27,43 @@ function MessageBubble({ role, text, sources }) {
             </p>
             <div className="space-y-2">
               {sources.map((src, idx) => {
+                const isWiki =
+                  src.source_type === "wikipedia" ||
+                  Boolean(src.wikipedia_url) ||
+                  (src.source_name &&
+                    src.source_name.toLowerCase().includes("wikipedia"));
+
+                if (isWiki) {
+                  const wikiTitle = (src.source_name || "").replace(/^Wikipedia\s*-\s*/i, "").trim();
+                  const wikiUrl =
+                    src.wikipedia_url ||
+                    `https://en.wikipedia.org/wiki/${encodeURIComponent(wikiTitle)}`;
+
+                  return (
+                    <a
+                      key={idx}
+                      href={wikiUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block bg-[#1C2843] border border-[#2B3C63] hover:border-blue-500 rounded-lg p-3 text-xs text-slate-200 space-y-1 shadow-sm transition-all cursor-pointer group"
+                    >
+                      <div className="font-semibold text-blue-400 group-hover:text-blue-300 flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span>🌐</span>
+                          <span>{src.source_name}</span>
+                        </div>
+                        <span className="text-[10px] text-blue-400 group-hover:translate-x-0.5 transition-transform">↗</span>
+                      </div>
+
+                      {(src.evidence_snippet || src.original_text) && (
+                        <div className="text-slate-300 text-[11px] leading-snug mt-1 line-clamp-2">
+                          {src.evidence_snippet || src.original_text}
+                        </div>
+                      )}
+                    </a>
+                  );
+                }
+
                 const isPptx =
                   src.file_type === "pptx" ||
                   (src.source_name &&

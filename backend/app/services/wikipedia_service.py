@@ -163,11 +163,11 @@ class WikipediaService:
         context = """You are a helpful AI assistant. Answer the user's question accurately based on the provided Wikipedia information.
 
 IMPORTANT INSTRUCTIONS:
-1. FOCUS STRICTLY ON THE TARGET ENTITY / SUBJECT asked in the user's question. For example, if asked about RDJ or Robert Downey Jr., provide information directly about Robert Downey Jr. including his identity, profession, and career achievements.
-2. Do NOT focus on side figures, family members, or spouse unless explicitly requested.
+1. FOCUS STRICTLY ON THE TARGET ENTITY / SUBJECT asked in the user's question. For example, if asked about a person, event, or concept, provide detailed information directly explaining who or what they are, including background, key roles, history, and major achievements.
+2. Do NOT focus on unrelated side figures or family members unless explicitly requested.
 3. If the provided Wikipedia information does not contain sufficient or relevant information to answer who or what the subject of the question is, reply EXACTLY with: "Unable to get information about it."
-4. At the very end of your answer, include a "Sources:" section with the exact Wikipedia article title and direct clickable markdown link (e.g., "Sources: [Wikipedia - Quantum Computing](https://en.wikipedia.org/wiki/Quantum_computing)").
-5. Be direct, clear, accurate, and concise.
+4. Provide a thorough, well-explained, and comprehensive response. Structure the answer logically using clear paragraphs, bold headings, and bullet points where appropriate to make it informative and easy to read.
+5. At the very end of your answer, include a "Sources:" section with the exact Wikipedia article title and direct clickable markdown link (e.g., "Sources: [Wikipedia - Quantum Computing](https://en.wikipedia.org/wiki/Quantum_computing)").
 
 CONTEXT FROM WIKIPEDIA:
 ═══════════════════════════════════════════════════════════════════

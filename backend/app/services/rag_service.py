@@ -195,7 +195,7 @@ QUESTION:
             logger.error(f"❌ {error}")
             return None, error
         
-        models_to_try = [settings.gemini_model, "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-flash-latest"]
+        models_to_try = [settings.gemini_model, "gemini-3.5-flash", "gemini-3.7-flash", "gemini-flash-latest"]
         seen_models = set()
         last_error = None
         
@@ -209,7 +209,7 @@ QUESTION:
                 response = model.generate_content(
                     prompt,
                     generation_config=genai.types.GenerationConfig(
-                        max_output_tokens=1024,
+                        max_output_tokens=2048,
                         temperature=0.7,
                         top_p=0.9
                     )

@@ -76,23 +76,41 @@ class RAGService:
             target_fname = None
             
             import re
-            m_fnum = re.search(r'File\s*(\d+)', question, re.IGNORECASE)
+            m_fnum = re.search(r'(?:File|Document|Doc)\s*#?\s*(\d+)', question, re.IGNORECASE)
             if m_fnum:
                 try:
                     target_fnum = int(m_fnum.group(1))
                 except ValueError:
                     pass
-                    
+            
+            if not target_fnum:
+                ordinals = {
+                    "first": 1, "1st": 1,
+                    "second": 2, "2nd": 2,
+                    "third": 3, "3rd": 3,
+                    "fourth": 4, "4th": 4,
+                    "fifth": 5, "5th": 5
+                }
+                m_ord = re.search(r'\b(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th)\s+(?:file|document|doc)\b', question, re.IGNORECASE)
+                if m_ord:
+                    ord_word = m_ord.group(1).lower()
+                    target_fnum = ordinals.get(ord_word)
+
             for meta in self.faiss_store.metadata:
                 fn = meta.get("filename")
-                if fn and len(fn) > 3 and fn.lower() in question.lower():
-                    target_fname = fn
-                    break
+                if fn and len(fn) > 3:
+                    fn_base = fn.rsplit('.', 1)[0] if '.' in fn else fn
+                    if fn.lower() in question.lower() or (len(fn_base) >= 4 and fn_base.lower() in question.lower()):
+                        target_fname = fn
+                        break
             
-            logger.debug(f"Step 2: Searching FAISS (top_k={top_k}, file_num={target_fnum}, filename={target_fname})...")
+            unique_files_in_store = len(set(m.get("file_id") for m in self.faiss_store.metadata if m.get("file_id")))
+            effective_k = max(top_k, min(15, unique_files_in_store * 5)) if not target_fnum and not target_fname else top_k
+
+            logger.debug(f"Step 2: Searching FAISS (k={effective_k}, file_num={target_fnum}, filename={target_fname})...")
             retrieved_chunks, error = self.faiss_store.search(
                 query_vector=question_embedding,
-                k=top_k,
+                k=effective_k,
                 threshold=relevance_threshold,
                 file_id=file_id,
                 target_file_number=target_fnum,
@@ -104,7 +122,7 @@ class RAGService:
                 logger.info("Retrying FAISS search with zero threshold to prefer uploaded document content")
                 retrieved_chunks, error = self.faiss_store.search(
                     query_vector=question_embedding,
-                    k=top_k,
+                    k=effective_k,
                     threshold=0.0,
                     file_id=file_id,
                     target_file_number=target_fnum,
@@ -142,15 +160,17 @@ class RAGService:
         
         logger.debug("Building prompt with context...")
         
-        system_instruction = """You are a helpful AI assistant specialized in answering user questions using provided document context.
+        system_instruction = """You are an intelligent AI assistant specialized in answering user questions using provided document context across one or multiple documents.
 
 IMPORTANT INSTRUCTIONS:
-1. Answer the user's question clearly, thoroughly, and comprehensively using the provided document context. Provide complete explanations, definitions, code examples, and concepts found in the documents.
-2. Structure your response logically with clear paragraphs and bullet points if appropriate.
-3. Synthesize and explain all details present in the context blocks below to answer the question as completely as possible.
-4. DO NOT include any file download links or URLs.
-5. Base your answer strictly on the facts and information in the provided document context.
-6. If the provided document context does NOT contain information to answer the user's question, reply EXACTLY with: "Unable to get information about it from documents."
+1. Answer the user's question clearly, thoroughly, and comprehensively using the provided document context.
+2. If the user asks about a specific document (e.g., "Document 1", "Document 2", or a specific filename), extract and answer strictly using information from that document.
+3. If the user asks to compare, contrast, or summarize across multiple documents, clearly distinguish facts from each document by citing the document name/number.
+4. Structure your response logically with clear headings, paragraphs, and bullet points.
+5. Synthesize and explain all details present in the context blocks below to answer the question as completely as possible.
+6. DO NOT include any file download links or URLs.
+7. Base your answer strictly on the facts and information in the provided document context.
+8. If the provided document context does NOT contain information to answer the user's question, reply EXACTLY with: "Unable to get information about it from documents."
 
 CONTEXT FROM DOCUMENTS:
 ═══════════════════════════════════════════════════════════════════

@@ -106,8 +106,9 @@ def upload_documents(
             # Read file content
             file_content = file.file.read()
             
-            existing_unique_files = set(m.get("file_id") for m in faiss_store.metadata)
-            assigned_file_number = len(existing_unique_files) + file_idx
+            existing_fnums = [m.get("file_number", 1) for m in faiss_store.metadata if isinstance(m.get("file_number"), int)]
+            base_file_num = max(existing_fnums) if existing_fnums else 0
+            assigned_file_number = base_file_num + file_idx
 
             chunks, metadata = file_processor.process_file(
                 file_content=file_content,

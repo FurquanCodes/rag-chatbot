@@ -125,15 +125,18 @@ function App() {
   }
 
   function handleUploaded(name, fileId) {
+    const isMultiple = name.includes(",");
     updateActiveChat({
       fileName: name,
       fileId: fileId,
-      title: `📄 ${name}`,
+      title: isMultiple ? `📚 ${name}` : `📄 ${name}`,
       messages: [
         ...activeChat.messages,
         {
           role: "assistant",
-          text: `Document "${name}" is ready. Ask me anything about it.`,
+          text: isMultiple
+            ? `Documents (${name}) uploaded and indexed successfully! You can ask questions about any particular document or compare across them.`
+            : `Document "${name}" is ready. Ask me anything about it!`,
         },
       ],
     });

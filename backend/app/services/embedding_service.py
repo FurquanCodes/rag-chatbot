@@ -150,21 +150,27 @@ class GoogleEmbeddingsAPI:
             return None
         
         if self.configured:
-            try:
-                self._rate_limit()
-                logger.debug(f"Calling Google Embeddings API for text: {text[:50]}...")
-                response = genai.embed_content(
-                    model=self.config.MODEL,
-                    content=text,
-                    task_type=task_type,
-                    request_options={"timeout": 4.0}
-                )
-                embedding = response.get('embedding')
-                if embedding and len(embedding) > 0:
-                    logger.debug(f"Generated embedding with {len(embedding)} dimensions")
-                    return embedding
-            except Exception as e:
-                logger.warning(f"Google Embeddings API call failed ({str(e)}), generating fallback vector")
+            models_to_try = [settings.embedding_model, self.config.MODEL, "models/gemini-embedding-001", "models/gemini-embedding-2"]
+            seen_models = set()
+            for model_name in models_to_try:
+                if not model_name or model_name in seen_models:
+                    continue
+                seen_models.add(model_name)
+                try:
+                    self._rate_limit()
+                    logger.debug(f"Calling Google Embeddings API for text: {text[:50]}... using {model_name}")
+                    response = genai.embed_content(
+                        model=model_name,
+                        content=text,
+                        task_type=task_type,
+                        request_options={"timeout": 10.0}
+                    )
+                    embedding = response.get('embedding')
+                    if embedding and len(embedding) > 0:
+                        logger.debug(f"Generated embedding with {len(embedding)} dimensions")
+                        return embedding
+                except Exception as e:
+                    logger.warning(f"Google Embeddings API call with {model_name} failed ({str(e)})")
         
         return self._generate_fallback_vector(text)
     
@@ -175,20 +181,26 @@ class GoogleEmbeddingsAPI:
         if not self.configured:
             return [self._generate_fallback_vector(t) for t in texts]
         
-        try:
-            self._rate_limit()
-            logger.debug(f"Calling Google Embeddings API batch for {len(texts)} texts...")
-            response = genai.embed_content(
-                model=self.config.MODEL,
-                content=texts,
-                task_type="retrieval_document",
-                request_options={"timeout": 4.0}
-            )
-            embeddings = response.get('embedding', [])
-            if isinstance(embeddings, list) and len(embeddings) == len(texts):
-                return embeddings
-        except Exception as e:
-            logger.warning(f"Batch embedding API call failed ({str(e)}), generating fallback vectors")
+        models_to_try = [settings.embedding_model, self.config.MODEL, "models/gemini-embedding-001", "models/gemini-embedding-2"]
+        seen_models = set()
+        for model_name in models_to_try:
+            if not model_name or model_name in seen_models:
+                continue
+            seen_models.add(model_name)
+            try:
+                self._rate_limit()
+                logger.debug(f"Calling Google Embeddings API batch for {len(texts)} texts using {model_name}...")
+                response = genai.embed_content(
+                    model=model_name,
+                    content=texts,
+                    task_type="retrieval_document",
+                    request_options={"timeout": 20.0}
+                )
+                embeddings = response.get('embedding', [])
+                if isinstance(embeddings, list) and len(embeddings) == len(texts):
+                    return embeddings
+            except Exception as e:
+                logger.warning(f"Batch embedding API call with {model_name} failed ({str(e)})")
         
         return [self._generate_fallback_vector(t) for t in texts]
     

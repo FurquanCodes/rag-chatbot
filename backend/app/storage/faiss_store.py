@@ -58,6 +58,9 @@ class FAISSVectorStore:
             # Load existing index
             logger.info(f"Loading existing FAISS index from {self.index_file}")
             self.load_index()
+            if self.index and self.index.d != self.dimension:
+                logger.warning(f"Existing FAISS index dimension {self.index.d} does not match target {self.dimension}, creating new index...")
+                self._create_new_index()
         else:
             # Create new index
             logger.info(f"Creating new FAISS index (dimension={self.dimension})")
@@ -74,7 +77,7 @@ class FAISSVectorStore:
         self.metadata = []
         self.vector_count = 0
         
-        logger.info("✅ New FAISS index created")
+        logger.info(f"✅ New FAISS index created with dimension {self.dimension}")
     
     def add_vectors(
         self,
@@ -86,7 +89,7 @@ class FAISSVectorStore:
         
         Args:
             chunks: List of TextChunk objects
-            embeddings: List of embedding vectors (768-dim each)
+            embeddings: List of embedding vectors
             
         Returns:
             Tuple[bool, Optional[str]]: (success, error_message)
@@ -115,7 +118,11 @@ class FAISSVectorStore:
                 
                 vector = np.array(embedding, dtype=np.float32)
                 if len(vector) != self.dimension:
-                    continue
+                    if self.vector_count == 0:
+                        self.dimension = len(vector)
+                        self._create_new_index()
+                    else:
+                        continue
                 
                 vectors.append(vector)
                 valid_chunks.append(chunk)

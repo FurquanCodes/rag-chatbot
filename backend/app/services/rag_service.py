@@ -104,11 +104,23 @@ class RAGService:
                         target_fname = fn
                         break
             
-            unique_files_in_store = len(set(m.get("file_id") for m in self.faiss_store.metadata if m.get("file_id")))
-            effective_k = max(top_k, min(15, unique_files_in_store * 5)) if not target_fnum and not target_fname else top_k
+            # Check if this is a comparison / multi-topic query
+            comparison_indicators = ["differentiate", "difference", "compare", "versus", "vs", "between", "contrast", "both"]
+            is_comparison = any(re.search(rf'\b{ind}\b', question, re.IGNORECASE) for ind in comparison_indicators)
 
-            logger.debug(f"Step 2: Searching FAISS (k={effective_k}, file_num={target_fnum}, filename={target_fname})...")
-            retrieved_chunks, error = self.faiss_store.search(
+            # If user asks to compare/differentiate, do not lock to single file_id or target_fname
+            if is_comparison:
+                file_id = None
+                target_fnum = None
+                target_fname = None
+
+            unique_files_in_store = len(set(m.get("file_id") for m in self.faiss_store.metadata if m.get("file_id")))
+            effective_k = max(top_k, min(20, unique_files_in_store * 6)) if not target_fnum and not target_fname else top_k
+
+            retrieved_chunks = []
+            
+            # Primary search
+            primary_chunks, error = self.faiss_store.search(
                 query_vector=question_embedding,
                 k=effective_k,
                 threshold=relevance_threshold,
@@ -117,7 +129,67 @@ class RAGService:
                 target_filename=target_fname,
                 raw_query=question
             )
+            if primary_chunks:
+                retrieved_chunks.extend(primary_chunks)
+
+            # Multi-topic / Cross-document retrieval:
+            if not target_fnum and not target_fname and unique_files_in_store > 1:
+                # Topic splitting for "differentiate between X and Y" or "compare X and Y"
+                m_comp = re.search(r'(?:between|compare|contrast|versus|vs)\s+(.+?)\s+(?:and|versus|vs|with)\s+(.+)', question, re.IGNORECASE)
+                sub_queries = []
+                if m_comp:
+                    q_part1 = m_comp.group(1).strip(" ?.,;")
+                    q_part2 = m_comp.group(2).strip(" ?.,;")
+                    if len(q_part1) >= 3: sub_queries.append(q_part1)
+                    if len(q_part2) >= 3: sub_queries.append(q_part2)
+                
+                # Check for document names mentioned in query
+                for meta in self.faiss_store.metadata:
+                    fn = meta.get("filename")
+                    if fn and len(fn) > 3:
+                        fn_base = fn.rsplit('.', 1)[0] if '.' in fn else fn
+                        if fn_base.lower() in question.lower() and fn_base not in sub_queries:
+                            sub_queries.append(fn_base)
+
+                # Search sub-queries
+                for sq in sub_queries:
+                    sq_emb = self.embedding_service.embed_question(sq)
+                    if sq_emb:
+                        sq_chunks, _ = self.faiss_store.search(
+                            query_vector=sq_emb,
+                            k=5,
+                            threshold=0.0,
+                            file_id=None,
+                            raw_query=sq
+                        )
+                        if sq_chunks:
+                            retrieved_chunks.extend(sq_chunks)
+                
+                # Also ensure top chunks from EACH distinct file in store are considered
+                file_ids_in_store = list(set(m.get("file_id") for m in self.faiss_store.metadata if m.get("file_id")))
+                for fid in file_ids_in_store:
+                    f_chunks, _ = self.faiss_store.search(
+                        query_vector=question_embedding,
+                        k=4,
+                        threshold=0.0,
+                        file_id=fid,
+                        raw_query=question
+                    )
+                    if f_chunks:
+                        retrieved_chunks.extend(f_chunks)
+
+            # Deduplicate chunks preserving highest similarity score
+            seen_chunk_ids = set()
+            unique_chunks = []
+            retrieved_chunks.sort(key=lambda x: x.get("similarity_score", 0), reverse=True)
+            for c in retrieved_chunks:
+                cid = c.get("chunk_id")
+                if cid and cid not in seen_chunk_ids:
+                    seen_chunk_ids.add(cid)
+                    unique_chunks.append(c)
             
+            retrieved_chunks = unique_chunks[:effective_k]
+
             if not retrieved_chunks and self.faiss_store.vector_count > 0:
                 logger.info("Retrying FAISS search with zero threshold to prefer uploaded document content")
                 retrieved_chunks, error = self.faiss_store.search(
@@ -130,7 +202,7 @@ class RAGService:
                     raw_query=question
                 )
             
-            if error:
+            if error and not retrieved_chunks:
                 logger.error(f"❌ FAISS search error: {error}")
                 return [], error
             
@@ -158,15 +230,20 @@ class RAGService:
             str: Formatted prompt for Gemini
         """
         
-        logger.debug("Building prompt with context")
+        logger.debug("Building prompt with context...")
+        
         system_instruction = """You are an intelligent AI assistant specialized in answering user questions using provided document context across one or multiple documents.
 
 IMPORTANT INSTRUCTIONS:
 1. Answer the user's question clearly, thoroughly, and comprehensively using the provided document context, document file names, and document metadata.
-2. If the user asks about a person, student, author, or topic associated with a document (e.g. if the file name contains 'REHAN GHAZI 928091' or the document mentions 'Syed Muhammad Ahmad Raza'), identify who they are in relation to the document (e.g., student name, roll number, course, institution, instructor, and the topic of their submission like Reinforcement Learning) and explain all related details thoroughly.
+2. When the user asks to compare, differentiate, contrast, or explain differences between concepts across different documents (e.g. 'Differentiate between data mining and binary trees'):
+   - Provide a complete, structured comparison.
+   - Begin with clear definitions and core concepts of each topic from their respective documents.
+   - Provide a clear, detailed side-by-side comparison table highlighting key differences (such as Purpose, Data Structure / Technique, Main Algorithms / Operations, Real-World Applications, and Outcomes).
+   - Elaborate thoroughly on each topic using the details in the provided documents.
 3. If the user asks about a specific document (e.g., "Document 1", "Document 2", or a specific filename), extract and answer strictly using information from that document.
-4. If the user asks to compare, contrast, or summarize across multiple documents, clearly distinguish facts from each document by citing the document name/number.
-5. Structure your response logically with clear headings, paragraphs, and bullet points.
+4. If the user asks about a person, student, author, or topic associated with a document (e.g. file names containing names or roll numbers), identify who they are in relation to the document and explain all related details thoroughly.
+5. Structure your response logically with clear headings, paragraphs, bullet points, and tables.
 6. Synthesize and explain all details present in the context blocks below to answer the question as completely as possible.
 7. DO NOT include any file download links or URLs.
 8. Base your answer strictly on the facts and information in the provided document context and document headers.

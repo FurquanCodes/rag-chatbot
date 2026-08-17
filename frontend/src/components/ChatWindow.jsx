@@ -36,9 +36,9 @@ function ChatWindow({
       const result = await askQuestion({
         question: textToSend,
         collection_id: "default",
-        file_id: fileId || undefined,
+        file_id: undefined,
         search_type: searchStrategy,
-        top_k: 5,
+        top_k: 8,
         relevance_threshold: 0.0,
       });
 

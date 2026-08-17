@@ -1,24 +1,96 @@
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 function MessageBubble({ role, text, sources }) {
   const isUser = role === "user";
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy text:", err);
+    }
+  }
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-4`}>
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-4 group`}>
       <div
-        className={`max-w-[85%] sm:max-w-[75%] rounded-2xl p-4 shadow-md leading-relaxed text-sm ${
+        className={`relative max-w-[85%] sm:max-w-[75%] rounded-2xl p-4 shadow-md leading-relaxed text-sm ${
           isUser
             ? "bg-[#2563EB] text-white rounded-br-none"
             : "bg-[#131B2E] border border-[#22304E] text-slate-200 rounded-bl-none"
         }`}
       >
-        {isUser ? (
-          <div className="whitespace-pre-wrap">{text}</div>
-        ) : (
-          <div className="prose prose-invert max-w-none text-sm leading-relaxed text-slate-200">
-            <ReactMarkdown>{text}</ReactMarkdown>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1 min-w-0">
+            {isUser ? (
+              <div className="whitespace-pre-wrap">{text}</div>
+            ) : (
+              <div className="prose prose-invert max-w-none text-sm leading-relaxed text-slate-200 overflow-x-auto">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    table: ({ node, ...props }) => (
+                      <div className="my-3 overflow-x-auto rounded-lg border border-[#2B3C63]">
+                        <table className="w-full text-left text-xs border-collapse" {...props} />
+                      </div>
+                    ),
+                    thead: ({ node, ...props }) => (
+                      <thead className="bg-[#1C2843] text-blue-300 font-semibold border-b border-[#2B3C63]" {...props} />
+                    ),
+                    th: ({ node, ...props }) => (
+                      <th className="p-2.5 border-r border-[#2B3C63] last:border-r-0" {...props} />
+                    ),
+                    td: ({ node, ...props }) => (
+                      <td className="p-2.5 border-t border-r border-[#2B3C63] last:border-r-0 text-slate-300" {...props} />
+                    ),
+                    code: ({ node, inline, className, children, ...props }) => {
+                      return (
+                        <code
+                          className="bg-[#1C2843] text-pink-400 px-1.5 py-0.5 rounded font-mono text-xs"
+                          {...props}
+                        >
+                          {children}
+                        </code>
+                      );
+                    },
+                  }}
+                >
+                  {text}
+                </ReactMarkdown>
+              </div>
+            )}
           </div>
-        )}
+
+          <button
+            onClick={handleCopy}
+            title={copied ? "Copied!" : "Copy message text"}
+            className={`shrink-0 flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-all border ${
+              copied
+                ? "bg-emerald-600/30 text-emerald-400 border-emerald-500/50"
+                : isUser
+                ? "bg-blue-700/60 hover:bg-blue-700 text-blue-100 border-blue-400/40 opacity-70 group-hover:opacity-100"
+                : "bg-[#1C2843] hover:bg-[#253659] text-slate-300 border-[#2B3C63] opacity-70 group-hover:opacity-100"
+            }`}
+          >
+            {copied ? (
+              <>
+                <span>✓</span>
+                <span>Copied</span>
+              </>
+            ) : (
+              <>
+                <span>📋</span>
+                <span>Copy</span>
+              </>
+            )}
+          </button>
+        </div>
 
         {!isUser && sources && sources.length > 0 && (
           <div className="mt-4 pt-3 border-t border-[#22304E]/80 space-y-2">
@@ -122,4 +194,4 @@ function MessageBubble({ role, text, sources }) {
   );
 }
 
-export default MessageBubble;
+export default MessageBubble;

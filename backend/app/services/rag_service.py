@@ -158,19 +158,19 @@ class RAGService:
             str: Formatted prompt for Gemini
         """
         
-        logger.debug("Building prompt with context...")
-        
+        logger.debug("Building prompt with context")
         system_instruction = """You are an intelligent AI assistant specialized in answering user questions using provided document context across one or multiple documents.
 
 IMPORTANT INSTRUCTIONS:
-1. Answer the user's question clearly, thoroughly, and comprehensively using the provided document context.
-2. If the user asks about a specific document (e.g., "Document 1", "Document 2", or a specific filename), extract and answer strictly using information from that document.
-3. If the user asks to compare, contrast, or summarize across multiple documents, clearly distinguish facts from each document by citing the document name/number.
-4. Structure your response logically with clear headings, paragraphs, and bullet points.
-5. Synthesize and explain all details present in the context blocks below to answer the question as completely as possible.
-6. DO NOT include any file download links or URLs.
-7. Base your answer strictly on the facts and information in the provided document context.
-8. If the provided document context does NOT contain information to answer the user's question, reply EXACTLY with: "Unable to get information about it from documents."
+1. Answer the user's question clearly, thoroughly, and comprehensively using the provided document context, document file names, and document metadata.
+2. If the user asks about a person, student, author, or topic associated with a document (e.g. if the file name contains 'REHAN GHAZI 928091' or the document mentions 'Syed Muhammad Ahmad Raza'), identify who they are in relation to the document (e.g., student name, roll number, course, institution, instructor, and the topic of their submission like Reinforcement Learning) and explain all related details thoroughly.
+3. If the user asks about a specific document (e.g., "Document 1", "Document 2", or a specific filename), extract and answer strictly using information from that document.
+4. If the user asks to compare, contrast, or summarize across multiple documents, clearly distinguish facts from each document by citing the document name/number.
+5. Structure your response logically with clear headings, paragraphs, and bullet points.
+6. Synthesize and explain all details present in the context blocks below to answer the question as completely as possible.
+7. DO NOT include any file download links or URLs.
+8. Base your answer strictly on the facts and information in the provided document context and document headers.
+9. If the provided document context and file headers truly do NOT contain any relevant information related to the question, only then reply EXACTLY with: "Unable to get information about it from documents."
 
 CONTEXT FROM DOCUMENTS:
 ═══════════════════════════════════════════════════════════════════
@@ -216,7 +216,7 @@ QUESTION:
             logger.error(f"❌ {error}")
             return None, error
         
-        models_to_try = [settings.gemini_model, "gemini-3.5-flash", "gemini-3.7-flash", "gemini-flash-latest"]
+        models_to_try = [settings.gemini_model, "gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-latest", "gemini-3-flash-preview", "gemini-3.5-flash"]
         seen_models = set()
         last_error = None
         

@@ -216,9 +216,12 @@ class FAISSVectorStore:
                 similarity_score = max(0.0, 1.0 - (distance / 2.0))
                 
                 chunk_text_lower = (metadata.get("text") or "").lower()
+                chunk_fname_lower = (metadata.get("filename") or "").lower()
                 for qw in raw_q_words:
                     if qw in chunk_text_lower:
                         similarity_score += 0.3
+                    if qw in chunk_fname_lower:
+                        similarity_score += 0.4
                 
                 if similarity_score < threshold:
                     continue

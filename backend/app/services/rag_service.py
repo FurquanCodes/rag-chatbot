@@ -150,6 +150,7 @@ IMPORTANT INSTRUCTIONS:
 3. Synthesize and explain all details present in the context blocks below to answer the question as completely as possible.
 4. DO NOT include any file download links or URLs.
 5. Base your answer strictly on the facts and information in the provided document context.
+6. If the provided document context does NOT contain information to answer the user's question, reply EXACTLY with: "Unable to get information about it from documents."
 
 CONTEXT FROM DOCUMENTS:
 ═══════════════════════════════════════════════════════════════════

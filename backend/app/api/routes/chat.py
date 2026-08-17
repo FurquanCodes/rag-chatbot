@@ -76,11 +76,28 @@ async def chat(request: ChatRequest) -> ChatResponse:
                     file_id=request.file_id
                 )
                 if response and not err:
-                    logger.info("✅ Primary choice satisfied: Returning answer from documents")
-                    return ChatResponse(
-                        status="success",
-                        data=response
-                    )
+                    ans_text = (response.get("answer") or "").lower().strip()
+                    no_info_indicators = [
+                        "unable to get information about it from documents",
+                        "no information",
+                        "not mentioned",
+                        "not found in the provided",
+                        "does not contain",
+                        "no details",
+                        "unable to find",
+                        "not provide information",
+                        "no mention"
+                    ]
+                    has_no_info = any(ind in ans_text for ind in no_info_indicators)
+                    
+                    if not has_no_info:
+                        logger.info("✅ Primary choice satisfied: Returning answer from documents")
+                        return ChatResponse(
+                            status="success",
+                            data=response
+                        )
+                    else:
+                        logger.info("Document context did not contain answer to question.")
             
             if request.search_type == "documents_only":
                 logger.info("Document-only mode: returning unable to get information response")
@@ -91,15 +108,15 @@ async def chat(request: ChatRequest) -> ChatResponse:
                         "sources": [],
                         "retrieval_details": {
                             "search_time_ms": 0,
-                            "documents_searched": 0,
-                            "chunks_retrieved": 0,
+                            "documents_searched": len(rag_service.faiss_store.metadata),
+                            "chunks_retrieved": len(retrieved_chunks) if retrieved_chunks else 0,
                             "fallback_used": False,
                             "retrieval_strategy": "document_search"
                         }
                     }
                 )
             
-            logger.info("Hybrid mode: no document chunks found, falling back to Wikipedia as second preference...")
+            logger.info("Hybrid mode: document content did not answer question, falling back to Wikipedia as second preference...")
         
         if request.search_type in ["wikipedia_only", "hybrid"]:
             logger.info("Step 2: Searching Wikipedia as fallback...")

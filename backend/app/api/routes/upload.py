@@ -106,6 +106,32 @@ def upload_documents(
             # Read file content
             file_content = file.file.read()
             
+            from app.services.rag_service import ACTIVE_IMAGES
+            
+            if file_type in {"png", "jpg", "jpeg", "webp", "gif"}:
+                logger.info(f"Processing image {file.filename}...")
+                image_number = len(ACTIVE_IMAGES) + 1
+                img_data = file_processor.process_image(
+                    file_content=file_content,
+                    filename=file.filename,
+                    collection_id=collection_id,
+                    image_number=image_number
+                )
+                ACTIVE_IMAGES.append(img_data)
+                
+                file_info = FileInfo(
+                    filename=file.filename,
+                    file_id=img_data["image_id"],
+                    file_type=file_type,
+                    file_size_bytes=len(file_content),
+                    pages=1,
+                    chunks=0,
+                    status=UploadStatus.PROCESSED
+                )
+                uploaded_files_info.append(file_info)
+                logger.info(f"✅ {file.filename}: Image processed successfully")
+                continue
+            
             existing_fnums = [m.get("file_number", 1) for m in faiss_store.metadata if isinstance(m.get("file_number"), int)]
             base_file_num = max(existing_fnums) if existing_fnums else 0
             assigned_file_number = base_file_num + file_idx
@@ -389,12 +415,15 @@ async def delete_document(
 async def clear_all_documents(collection_id: str = "default"):
     logger.info(f"🗑️ Clearing all documents for collection: {collection_id}")
     try:
+        from app.services.rag_service import clear_active_images
+        clear_active_images()
+        
         faiss_store = get_faiss_store()
         faiss_store.clear_index()
         faiss_store.save_index()
         return {
             "status": "success",
-            "message": "All indexed documents cleared successfully"
+            "message": "All indexed documents and images cleared successfully"
         }
     except Exception as e:
         logger.error(f"❌ Error clearing all documents: {str(e)}")

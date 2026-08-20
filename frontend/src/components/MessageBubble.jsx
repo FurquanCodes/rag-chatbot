@@ -161,26 +161,29 @@ function MessageBubble({ role, text, sources }) {
                     <div className="font-semibold text-blue-400 flex items-center gap-1.5">
                       <span>📄</span>
                       <span>
-                        {fileNumPrefix}
-                        {sName}
+                        {fileNumPrefix}{sName}
                       </span>
                     </div>
 
                     {src.page_number && (
-                      <div className="text-slate-300 font-medium">
-                        {unitLabel}: {src.page_number}
+                      <div className="text-slate-300 font-medium flex items-center gap-1.5 mt-1">
+                        <span>📑</span>
+                        <span>{unitLabel}: {src.page_number}</span>
                       </div>
                     )}
 
                     {lineDisplay && (
-                      <div className="text-slate-300 font-medium">
-                        {lineDisplay}
+                      <div className="text-slate-300 font-medium flex items-center gap-1.5 mt-1">
+                        <span>🔢</span>
+                        <span>{lineDisplay}</span>
                       </div>
                     )}
 
                     {src.original_text && (
-                      <div className="mt-2 pt-2 border-t border-[#2B3C63]/60 text-slate-300 italic font-mono text-[11px] leading-snug">
-                        Exact Quote: "{src.original_text}"
+                      <div className="mt-2 pt-2 border-t border-[#2B3C63]/60 text-slate-300 italic text-[12px] leading-relaxed border-l-2 border-l-blue-500 pl-2">
+                        Exact Source Text:
+                        <br/>
+                        "{src.original_text}"
                       </div>
                     )}
                   </div>

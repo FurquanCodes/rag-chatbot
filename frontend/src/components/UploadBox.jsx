@@ -15,7 +15,7 @@ function UploadBox({ onUploaded, isUploading, setIsUploading }) {
       if (onUploaded) onUploaded(fileNames, fileId);
     } catch (err) {
       console.error("Upload error:", err);
-      alert("Failed to upload document. Please try again.");
+      alert("Failed to upload file. Please try again.");
     } finally {
       if (setIsUploading) setIsUploading(false);
       e.target.value = "";
@@ -23,12 +23,12 @@ function UploadBox({ onUploaded, isUploading, setIsUploading }) {
   }
 
   return (
-    <div className="relative">
+    <div className="relative flex items-center gap-2">
       <label
         className={`w-11 h-11 rounded-xl bg-[#131B2E] border border-[#22304E] hover:border-[#2563EB] flex items-center justify-center text-lg cursor-pointer transition-all shadow-md ${
           isUploading ? "opacity-50 cursor-not-allowed" : ""
         }`}
-        title="Upload document (PDF, DOCX, PPTX, TXT)"
+        title="Upload Document (PDF, DOCX, PPTX, TXT)"
       >
         {isUploading ? (
           <span className="animate-spin text-sm">⏳</span>
@@ -38,6 +38,27 @@ function UploadBox({ onUploaded, isUploading, setIsUploading }) {
         <input
           type="file"
           accept=".pdf,.docx,.pptx,.txt"
+          multiple
+          disabled={isUploading}
+          onChange={handleFileChange}
+          className="hidden"
+        />
+      </label>
+
+      <label
+        className={`w-11 h-11 rounded-xl bg-[#131B2E] border border-[#22304E] hover:border-[#2563EB] flex items-center justify-center text-lg cursor-pointer transition-all shadow-md ${
+          isUploading ? "opacity-50 cursor-not-allowed" : ""
+        }`}
+        title="Upload Image (PNG, JPG, WEBP, GIF)"
+      >
+        {isUploading ? (
+          <span className="animate-spin text-sm">⏳</span>
+        ) : (
+          <span>🖼️</span>
+        )}
+        <input
+          type="file"
+          accept=".png,.jpg,.jpeg,.webp,.gif"
           multiple
           disabled={isUploading}
           onChange={handleFileChange}

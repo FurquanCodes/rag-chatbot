@@ -29,7 +29,7 @@ logger = get_logger(__name__)
 
 class FileValidator:
     
-    ALLOWED_EXTENSIONS = {"pdf", "docx", "pptx", "txt"}
+    ALLOWED_EXTENSIONS = {"pdf", "docx", "pptx", "txt", "png", "jpg", "jpeg", "webp", "gif"}
     MAX_FILE_SIZE = settings.max_file_size
     
     @staticmethod
@@ -427,6 +427,51 @@ class FileProcessor:
         self.chunker = TextChunker()
         self.storage = FileStorage()
     
+    def process_image(
+        self,
+        file_content: bytes,
+        filename: str,
+        collection_id: str = "default",
+        image_number: int = 1
+    ) -> Dict:
+        logger.info(f"Processing image #{image_number}: {filename}")
+        
+        is_valid, error_msg = self.validator.validate_file(filename, len(file_content))
+        if not is_valid:
+            raise ValueError(error_msg)
+            
+        file_path, file_id = self.storage.save_uploaded_file(
+            file_content, filename, collection_id
+        )
+        
+        try:
+            img = Image.open(file_path)
+            model = genai.GenerativeModel(settings.gemini_model)
+            
+            # Extract OCR text
+            ocr_prompt = "Extract all readable text from this image exactly as written. If there are lines, preserve the line breaks. If there is no text, reply with 'NO_TEXT'."
+            ocr_response = model.generate_content([ocr_prompt, img])
+            ocr_text = ocr_response.text.strip()
+            if "NO_TEXT" in ocr_text.upper():
+                ocr_text = ""
+                
+            # Extract Vision description
+            vision_prompt = "Provide a detailed visual description of what this image shows. Describe any elements, charts, diagrams, screenshots, or visual context visible. Do not include OCR text, focus purely on visual semantics."
+            vision_response = model.generate_content([vision_prompt, img])
+            description = vision_response.text.strip()
+            
+            return {
+                "image_id": file_id,
+                "image_number": image_number,
+                "file_name": filename,
+                "file_path": file_path,
+                "ocr_text": ocr_text,
+                "description": description
+            }
+        except Exception as e:
+            logger.error(f"❌ Failed to process image {filename}: {str(e)}")
+            raise
+            
     def process_file(
         self,
         file_content: bytes,
@@ -460,9 +505,10 @@ class FileProcessor:
                         continue
                     s_lines = [line.strip() for line in s_text.split('\n') if line.strip()]
                     lines_with_num = []
+                    page_line_counter = 1
                     for line_str in s_lines:
-                        lines_with_num.append((global_line_counter, line_str))
-                        global_line_counter += 1
+                        lines_with_num.append((page_line_counter, line_str))
+                        page_line_counter += 1
                         
                     s_chunk_dicts = self.chunker.chunk_lines(lines_with_num)
                     for c_dict in s_chunk_dicts:
@@ -489,9 +535,10 @@ class FileProcessor:
                         continue
                     p_lines = [line.strip() for line in p_text.split('\n') if line.strip()]
                     lines_with_num = []
+                    page_line_counter = 1
                     for line_str in p_lines:
-                        lines_with_num.append((global_line_counter, line_str))
-                        global_line_counter += 1
+                        lines_with_num.append((page_line_counter, line_str))
+                        page_line_counter += 1
                         
                     p_chunk_dicts = self.chunker.chunk_lines(lines_with_num)
                     for c_dict in p_chunk_dicts:

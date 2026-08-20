@@ -68,7 +68,10 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 file_id=request.file_id
             )
             
-            if retrieved_chunks and not error:
+            from app.services.rag_service import ACTIVE_IMAGES
+            
+            # Allow proceeding if we have text chunks OR active images
+            if (retrieved_chunks and not error) or ACTIVE_IMAGES:
                 response, err = rag_service.answer_question(
                     question=request.question,
                     top_k=request.top_k,

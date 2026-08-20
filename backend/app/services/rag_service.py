@@ -20,6 +20,12 @@ from app.storage.faiss_store import get_faiss_store
 
 logger = get_logger(__name__)
 
+# Global state for uploaded images in the current chat session
+ACTIVE_IMAGES = []
+
+def clear_active_images():
+    global ACTIVE_IMAGES
+    ACTIVE_IMAGES = []
 
 # ============ RAG SERVICE ============
 
@@ -108,9 +114,11 @@ class RAGService:
             comparison_indicators = ["differentiate", "difference", "compare", "versus", "vs", "between", "contrast", "both"]
             is_comparison = any(re.search(rf'\b{ind}\b', question, re.IGNORECASE) for ind in comparison_indicators)
 
-            # If user asks to compare/differentiate, do not lock to single file_id or target_fname
+            # If user asks to compare/differentiate, do not lock to target_fnum or target_fname.
+            # Only clear file_id if it wasn't explicitly provided.
             if is_comparison:
-                file_id = None
+                if not file_id:
+                    file_id = None
                 target_fnum = None
                 target_fname = None
 
@@ -232,22 +240,24 @@ class RAGService:
         
         logger.debug("Building prompt with context...")
         
-        system_instruction = """You are an intelligent AI assistant specialized in answering user questions using provided document context across one or multiple documents.
+        system_instruction = """You are a highly precise document-grounding QA assistant.
+Your primary role is to retrieve and return EXACT wording from the uploaded documents.
 
 IMPORTANT INSTRUCTIONS:
-1. Answer the user's question clearly, thoroughly, and comprehensively using the provided document context, document file names, and document metadata.
-2. When the user asks to compare, differentiate, contrast, or explain differences between concepts across different documents (e.g. 'Differentiate between data mining and binary trees'):
-   - Provide a complete, structured comparison.
-   - Begin with clear definitions and core concepts of each topic from their respective documents.
-   - Provide a clear, detailed side-by-side comparison table highlighting key differences (such as Purpose, Data Structure / Technique, Main Algorithms / Operations, Real-World Applications, and Outcomes).
-   - Elaborate thoroughly on each topic using the details in the provided documents.
-3. If the user asks about a specific document (e.g., "Document 1", "Document 2", or a specific filename), extract and answer strictly using information from that document.
-4. If the user asks about a person, student, author, or topic associated with a document (e.g. file names containing names or roll numbers), identify who they are in relation to the document and explain all related details thoroughly.
-5. Structure your response logically with clear headings, paragraphs, bullet points, and tables.
-6. Synthesize and explain all details present in the context blocks below to answer the question as completely as possible.
-7. DO NOT include any file download links or URLs.
-8. Base your answer strictly on the facts and information in the provided document context and document headers.
-9. If the provided document context and file headers truly do NOT contain any relevant information related to the question, only then reply EXACTLY with: "Unable to get information about it from documents."
+1. EXACT SOURCE MODE IS THE DEFAULT. Whenever possible, answer the question by returning the exact, verbatim text from the provided context. Do NOT paraphrase, summarize, or rewrite the text in your own words unless explicitly asked to do so by the user.
+2. If the user asks for a summary or explanation, you may summarize or explain, but YOU MUST STILL accurately represent the facts from the source without inventing information.
+3. If the answer requires information from multiple files, structure your response by separating the information by file. 
+   Example format:
+   ### File 1 — Research.pdf
+   [Exact text]
+   
+   ### File 2 — Project_Report.pdf
+   [Exact text]
+4. Do NOT invent, guess, or hallucinate citations (file numbers, page numbers, line numbers). All citation information must come from the headers provided in the context blocks below.
+5. If the user asks about a specific file or document by its number or name, use only the context blocks that match that file.
+6. DO NOT include any file download links or raw URLs in your answer.
+7. Base your answer strictly on the facts and information in the provided document context and document headers.
+8. If the provided context does NOT contain information relevant to the question, reply EXACTLY with: "I couldn't find this information in the uploaded documents." Do not use your general knowledge to invent an answer.
 
 CONTEXT FROM DOCUMENTS:
 ═══════════════════════════════════════════════════════════════════
@@ -287,13 +297,13 @@ QUESTION:
         
         return system_instruction
     
-    def call_gemini(self, prompt: str) -> Tuple[Optional[str], Optional[str]]:
+    def call_gemini(self, prompt: str | list) -> Tuple[Optional[str], Optional[str]]:
         if not self.configured:
             error = "Gemini API not configured"
             logger.error(f"❌ {error}")
             return None, error
         
-        models_to_try = [settings.gemini_model, "gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-latest", "gemini-3-flash-preview", "gemini-3.5-flash"]
+        models_to_try = [settings.gemini_model, "gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-latest", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-3-flash-preview", "gemini-3.5-flash"]
         seen_models = set()
         last_error = None
         
@@ -375,7 +385,12 @@ QUESTION:
             if len(best_snippet) > 180:
                 best_snippet = best_snippet[:177] + "..."
                 
-            dedup_key = (f_num, s_name, p_num)
+            # Explicit Source Validation
+            # Verify file number, name, text existence directly from metadata
+            if not f_num or not s_name or not orig_text or l_start is None:
+                continue
+                
+            dedup_key = (f_num, s_name, p_num, l_start)
             if dedup_key in seen_keys:
                 continue
             seen_keys.add(dedup_key)
@@ -412,6 +427,19 @@ QUESTION:
             "retrieval_details": retrieval_details
         }
     
+    def get_unique_files(self) -> List[Dict]:
+        """Extract all unique files from FAISS store."""
+        files = {}
+        for meta in self.faiss_store.metadata:
+            fid = meta.get("file_id")
+            if fid and fid not in files:
+                files[fid] = {
+                    "file_id": fid,
+                    "file_number": meta.get("file_number", 1),
+                    "filename": meta.get("filename", f"Document {meta.get('file_number', 1)}")
+                }
+        return sorted(list(files.values()), key=lambda x: x["file_number"])
+
     def answer_question(
         self,
         question: str,
@@ -423,6 +451,172 @@ QUESTION:
         logger.info(f"📝 Answering question: {question[:50]}... (file_id={file_id})")
         
         try:
+            q_lower = question.lower()
+            import re
+            
+            # --- IMAGE ROUTING ---
+            is_all_images = False
+            if ACTIVE_IMAGES and re.search(r'\b(all|every|each)\b.*\b(images?|pictures?|photos?)\b', q_lower):
+                is_all_images = True
+            elif ACTIVE_IMAGES and "explain all" in q_lower and ("image" in q_lower or "upload" in q_lower):
+                is_all_images = True
+                
+            if is_all_images:
+                logger.info("Detected ALL_IMAGES intent. Initiating per-image processing...")
+                from PIL import Image
+                final_answer_blocks = []
+                all_sources = []
+                
+                for idx, img_data in enumerate(ACTIVE_IMAGES, 1):
+                    fname = img_data["file_name"]
+                    img = Image.open(img_data["file_path"])
+                    prompt = [f"Explain this image in detail. Address the user's question: {question}\nProvide a detailed Image Overview, Text Detected, and Visual Analysis.", img]
+                    answer, err = self.call_gemini(prompt)
+                    if err:
+                        answer = f"Failed to analyze image: {err}"
+                        
+                    final_answer_blocks.append(f"# Image {idx} — {fname}\n\n{answer}")
+                    all_sources.append({
+                        "file_id": img_data["image_id"],
+                        "file_number": idx,
+                        "source_name": fname,
+                        "file_type": "image",
+                        "page_number": 1,
+                        "line_start": 1,
+                        "line_end": 1,
+                        "evidence_snippet": "Visual Analysis",
+                        "relevance_score": 1.0
+                    })
+                    
+                final_answer = "\n\n------------------------------------------------\n\n".join(final_answer_blocks)
+                return {
+                    "answer": final_answer,
+                    "sources": all_sources,
+                    "retrieval_details": {"search_time_ms": (time.time() - start_time) * 1000, "documents_searched": 0, "chunks_retrieved": 0, "fallback_used": False, "retrieval_strategy": "multi_image_vision"}
+                }, None
+
+            if ACTIVE_IMAGES and ("image" in q_lower or "photo" in q_lower or "picture" in q_lower or "chart" in q_lower or "graph" in q_lower or "screenshot" in q_lower or "diagram" in q_lower or "table" in q_lower or "this" in q_lower or "text" in q_lower or len(self.faiss_store.metadata) == 0):
+                logger.info("Detected multimodal intent with active images.")
+                from PIL import Image
+                retrieved_chunks, _ = self.retrieve_context(question=question, top_k=top_k, relevance_threshold=relevance_threshold, file_id=file_id)
+                
+                if retrieved_chunks:
+                    text_prompt = self.build_prompt(question, retrieved_chunks)
+                    multimodal_prompt = "You are a multimodal assistant. You have been provided with both images and document context. Use the provided images as primary visual evidence and the document context as textual evidence to answer the question.\n\n" + text_prompt
+                else:
+                    multimodal_prompt = f"You are a helpful multimodal AI assistant. Answer the user's question clearly and accurately based on the provided images and OCR text.\n\nUser Question: {question}\n\nInstructions:\n1. If the user's input is a simple greeting, acknowledgment (like 'ok', 'thanks', 'yes'), or conversational, respond naturally and conversationally without describing the image.\n2. Otherwise, answer directly based on the visual and text context of the images."
+                
+                prompt_content = [multimodal_prompt]
+                all_sources = []
+                
+                for idx, img_data in enumerate(ACTIVE_IMAGES, 1):
+                    prompt_content.append(f"\n--- Image {idx}: {img_data['file_name']} ---")
+                    prompt_content.append(Image.open(img_data["file_path"]))
+                    if img_data['ocr_text']:
+                        prompt_content.append(f"OCR Text detected from Image {idx}:\n{img_data['ocr_text']}")
+                    
+                    all_sources.append({
+                        "file_id": img_data["image_id"],
+                        "file_number": idx,
+                        "source_name": img_data["file_name"],
+                        "file_type": "image",
+                        "page_number": 1,
+                        "line_start": 1,
+                        "line_end": 1,
+                        "evidence_snippet": "Visual Analysis + OCR",
+                        "relevance_score": 1.0
+                    })
+                    
+                answer, err = self.call_gemini(prompt_content)
+                if err:
+                    answer = f"Failed to analyze multimodal request: {err}"
+                
+                if retrieved_chunks:
+                    doc_response = self.format_response(question, answer, retrieved_chunks, 0)
+                    all_sources.extend(doc_response["sources"])
+                    
+                return {
+                    "answer": answer,
+                    "sources": all_sources,
+                    "retrieval_details": {"search_time_ms": (time.time() - start_time) * 1000, "documents_searched": len(self.faiss_store.metadata), "chunks_retrieved": len(retrieved_chunks), "fallback_used": False, "retrieval_strategy": "multimodal_vision_and_document"}
+                }, None
+            # --- END IMAGE ROUTING ---
+
+            # Robust intent detection for ALL FILES
+            is_all_files = False
+            if re.search(r'\b(all|every|each)\b.*\b(files?|documents?|docs?)\b', q_lower):
+                is_all_files = True
+            elif "all" in q_lower and "summar" in q_lower:
+                is_all_files = True
+            
+            target_fnum_match = re.search(r'(?:file|document|doc)\s*#?\s*(\d+)', q_lower)
+            if "summar" in q_lower and not target_fnum_match and not is_all_files:
+                is_all_files = True
+                
+            if is_all_files:
+                logger.info("Detected ALL_FILES intent. Initiating per-file processing...")
+                unique_files = self.get_unique_files()
+                if not unique_files:
+                    return {}, "No documents uploaded."
+                
+                final_answer_blocks = []
+                all_sources = []
+                
+                for display_idx, file_info in enumerate(unique_files, 1):
+                    fid = file_info["file_id"]
+                    original_fnum = file_info["file_number"]
+                    fname = file_info["filename"]
+                    
+                    retrieved_chunks, _ = self.retrieve_context(
+                        question=question,
+                        top_k=max(15, top_k or settings.top_k_retrieval), 
+                        relevance_threshold=relevance_threshold,
+                        file_id=fid
+                    )
+                    
+                    retrieved_chunks = [c for c in retrieved_chunks if c.get("file_id") == fid]
+                    
+                    if not retrieved_chunks:
+                        final_answer_blocks.append(f"# File {display_idx} — {fname}\n\nNo sufficiently relevant content was retrieved from this file.")
+                        continue
+                        
+                    prompt = self.build_prompt(f"Focus ONLY on File {original_fnum} ({fname}). Answer this request using ONLY the provided context blocks: {question}", retrieved_chunks)
+                    answer, err = self.call_gemini(prompt)
+                    
+                    if err:
+                        answer = f"Failed to generate answer for this file: {err}"
+                        
+                    file_response = self.format_response(
+                        question=question,
+                        answer=answer,
+                        retrieved_chunks=retrieved_chunks,
+                        search_time_ms=0,
+                        fallback_used=False
+                    )
+                    
+                    for src in file_response["sources"]:
+                        src["file_number"] = display_idx
+                        if src not in all_sources:
+                            all_sources.append(src)
+                    
+                    final_answer_blocks.append(f"# File {display_idx} — {fname}\n\n## Detailed Summary\n\n{answer}")
+                    
+                final_answer = "\n\n------------------------------------------------\n\n".join(final_answer_blocks)
+                search_time_ms = (time.time() - start_time) * 1000
+                
+                return {
+                    "answer": final_answer,
+                    "sources": all_sources,
+                    "retrieval_details": {
+                        "search_time_ms": search_time_ms,
+                        "documents_searched": len(unique_files),
+                        "chunks_retrieved": len(unique_files) * 15,
+                        "fallback_used": False,
+                        "retrieval_strategy": "all_documents_per_file"
+                    }
+                }, None
+                
+            # Single/Multi Query Fallback
             logger.info("Step 1: Retrieving context from documents...")
             retrieved_chunks, error = self.retrieve_context(
                 question=question,
@@ -432,30 +626,19 @@ QUESTION:
             )
             
             if error:
-                logger.error(f"❌ Retrieval failed: {error}")
                 return {}, error
             
-            # Step 2: Check if relevant context found
             if not retrieved_chunks:
                 error = "No relevant context found in documents"
-                logger.warning(f"⚠️ {error}")
                 return {}, error
             
-            # Step 3: Build prompt
-            logger.info("Step 2: Building prompt with context...")
             prompt = self.build_prompt(question, retrieved_chunks)
-            
-            # Step 4: Call Gemini
-            logger.info("Step 3: Calling Gemini API...")
             answer, error = self.call_gemini(prompt)
             
             if error:
-                logger.warning(f"⚠️ Gemini call failed ({error}), building direct response from document context")
                 context_snippets = "\n\n".join([f"Excerpt {i+1}:\n{chunk['text']}" for i, chunk in enumerate(retrieved_chunks[:3])])
                 answer = f"Relevant information from your document:\n\n{context_snippets}"
             
-            # Step 5: Format response
-            logger.info("Step 4: Formatting response...")
             search_time_ms = (time.time() - start_time) * 1000
             
             response = self.format_response(
@@ -465,8 +648,6 @@ QUESTION:
                 search_time_ms=search_time_ms,
                 fallback_used=False
             )
-            
-            logger.info(f"✅ Question answered in {search_time_ms:.0f}ms")
             
             return response, None
             

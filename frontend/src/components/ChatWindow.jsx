@@ -98,7 +98,7 @@ function ChatWindow({
 
         <div className="flex items-center gap-4 text-xs">
           <span className="text-slate-400">
-            {documentsCount || 0} document(s) in index
+            {documentsCount || 0} file(s) in index
           </span>
           <div className="flex items-center gap-1.5 font-medium">
             <span
@@ -130,7 +130,7 @@ function ChatWindow({
               Welcome to RAG Chatbot
             </h2>
             <p className="text-slate-400 text-sm max-w-lg mb-8 leading-relaxed">
-              Upload your PDF, DOCX, PPTX, or TXT documents using the clip icon
+              Upload your PDF, DOCX, PPTX, TXT documents or Images using the icons
               below, or ask questions powered by document search and Wikipedia
               fallback.
             </p>
@@ -195,7 +195,11 @@ function ChatWindow({
         <div className="max-w-3xl mx-auto space-y-2">
           {fileName && (
             <p className="text-[11px] text-slate-400 flex items-center gap-1.5 px-1">
-              <span>📄 Active document:</span>
+              <span>
+                {fileName.match(/\.(png|jpg|jpeg|webp|gif)$/i) 
+                  ? "🖼️ [Image Preview]" 
+                  : "📄 Active file:"}
+              </span>
               <span className="font-semibold text-slate-200">{fileName}</span>
             </p>
           )}
@@ -215,7 +219,7 @@ function ChatWindow({
                 !isConnected
                   ? "Connecting to backend server..."
                   : isUploading
-                  ? "Uploading document..."
+                  ? "Uploading file..."
                   : "Ask a question..."
               }
               disabled={loading || isUploading || !isConnected}

@@ -16,7 +16,14 @@ function UploadBox({ onUploaded, isUploading, setIsUploading }) {
     } catch (err) {
       console.error("Upload error:", err);
       const errorDetail = err.response?.data?.detail;
-      const errorMsg = errorDetail?.message || (typeof errorDetail === 'string' ? errorDetail : null) || err.message || "Failed to upload file. Please try again.";
+      let errorMsg = errorDetail?.message || (typeof errorDetail === 'string' ? errorDetail : null) || err.message || "Failed to upload file. Please try again.";
+      
+      // If there are specific file failures, append them to the error message
+      if (errorDetail?.failed_files && errorDetail.failed_files.length > 0) {
+        const fileErrors = errorDetail.failed_files.map(f => `${f.filename}: ${f.reason}`).join('\n');
+        errorMsg = `${errorMsg}\n\nDetails:\n${fileErrors}`;
+      }
+      
       alert(`Upload Failed: ${errorMsg}`);
     } finally {
       if (setIsUploading) setIsUploading(false);

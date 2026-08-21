@@ -13,6 +13,9 @@ import uuid
 from datetime import datetime
 import logging
 from PIL import Image
+import PIL.PngImagePlugin
+import PIL.JpegImagePlugin
+import PIL.ImageFile
 import google.generativeai as genai
 
 from pypdf import PdfReader

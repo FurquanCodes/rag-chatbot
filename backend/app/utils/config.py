@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     
     # ============ Google Gemini API ============
     google_api_key: str = Field(default="", description="Google Gemini API key")
-    gemini_model: str = Field(default="gemini-3.6-flash", description="Gemini model name")
+    gemini_model: str = Field(default="gemini-2.5-flash", description="Gemini model name")
     
     # ============ File Upload Configuration ============
     upload_folder: str = Field(default="./uploads", description="Directory to store uploaded files")
